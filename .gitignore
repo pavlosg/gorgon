@@ -1,6 +1,11 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
+# Without extension
+*
+!/**/
+!*.*
+
+!Makefile
+!Dockerfile
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -23,3 +28,13 @@ go.work.sum
 
 # env file
 .env
+
+# HTML test output
+*~*.html
+
+# Hidden directories
+.*/
+
+# OS files
+*.DS_Store
+*.db
