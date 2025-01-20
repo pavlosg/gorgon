@@ -51,7 +51,7 @@ func log(level Level, format string, args ...interface{}) {
 	}
 	buffer := []byte(fmt.Sprintf(format, args...))
 	if _, file, line, ok := runtime.Caller(2); ok {
-		buffer = append(buffer, " @"...)
+		buffer = append(buffer, "\t @"...)
 		buffer = append(buffer, file...)
 		buffer = append(buffer, ':')
 		buffer = append(buffer, strconv.Itoa(line)...)

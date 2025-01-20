@@ -29,6 +29,10 @@ func NewRunner(db gorgon.Database, scenario gorgon.Scenario, opts *gorgon.Option
 	return &Runner{name, db, scenario, opts, nil}
 }
 
+func (runner *Runner) Name() string {
+	return runner.name
+}
+
 func (runner *Runner) SetUp() error {
 	workload := runner.scenario.Workload
 	log.Info("[%s] Creating clients", runner.name)

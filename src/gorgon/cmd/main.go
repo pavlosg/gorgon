@@ -38,7 +38,8 @@ func cmdRun(db gorgon.Database, args []string) int {
 		Concurrency: 3,
 		RpcPort:     9090,
 	}
-	if ret := parseOptions(args, opt); ret != 0 {
+	var filter Filter
+	if ret := parseOptions(args, opt, &filter); ret != 0 {
 		return ret
 	}
 	if err := db.SetUp(opt); err != nil {
@@ -48,6 +49,9 @@ func cmdRun(db gorgon.Database, args []string) int {
 	scenarios := db.Scenarios(opt)
 	for _, scenario := range scenarios {
 		runner := NewRunner(db, scenario, opt)
+		if !filter.Match(runner.Name()) {
+			continue
+		}
 		if err := runner.SetUp(); err != nil {
 			log.Error("Error in Runner.SetUp: %v", err)
 			return 1
@@ -67,21 +71,26 @@ func cmdRun(db gorgon.Database, args []string) int {
 	return 0
 }
 
-func parseOptions(args []string, opt *gorgon.Options) int {
+func parseOptions(args []string, opt *gorgon.Options, filter *Filter) int {
 	var flags Flags
-	flags.Optional("--concurrency", "", &opt.Concurrency)
-	flags.Optional("--rpc-port", "", &opt.RpcPort)
+	matchPattern := "*"
+	excludePattern := ""
+	flags.Optional("-R", "Wildcard pattern for scenarios to run", &matchPattern)
+	flags.Optional("-E", "Wildcard pattern for scenarios to exclude", &excludePattern)
+	flags.Optional("--concurrency", "Number of clients to use", &opt.Concurrency)
+	flags.Optional("--rpc-port", "RPC port to connect", &opt.RpcPort)
 	workloadDuration := 30
-	flags.Optional("--workload-duration", "", &workloadDuration)
+	flags.Optional("--workload-duration", "Intended workload/nemesis duration is seconds", &workloadDuration)
 	nodes := "localhost"
-	flags.Optional("--nodes", "", &nodes)
+	flags.Optional("--nodes", "Comma-separated list of nodes", &nodes)
 	extras := ""
-	flags.Optional("--extras", "", &extras)
+	flags.Optional("--extras", "Extra options (e.g. 'foo=fuz;bar=baz')", &extras)
 
 	if !flags.Parse(args) {
 		return exitUsage
 	}
 
+	*filter = MakeFilter(matchPattern, excludePattern)
 	if opt.Concurrency < 1 {
 		fmt.Println("Invalid concurrency", opt.RpcPort)
 		return exitUsage
