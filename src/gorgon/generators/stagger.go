@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"github.com/pavlosg/gorgon/src/gorgon"
+	"github.com/pavlosg/gorgon/src/gorgon/splitmix"
 )
 
 func Stagger(gen gorgon.Generator, pace time.Duration) gorgon.Generator {
-	return &stagger{gen, pace, time.Now(), gorgon.NewSplitMixRand()}
+	return &stagger{gen, pace, time.Now(), splitmix.NewRand()}
 }
 
 type stagger struct {

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 
 	"github.com/pavlosg/gorgon/src/gorgon"
+	"github.com/pavlosg/gorgon/src/gorgon/splitmix"
 )
 
 type GetInstruction struct {
@@ -33,7 +34,7 @@ func (op *SetInstruction) String() string {
 }
 
 func NewGetSetGenerator(keys []string) gorgon.Generator {
-	return &getSetGenerator{keys: keys, rand: gorgon.NewSplitMixRand()}
+	return &getSetGenerator{keys: keys, rand: splitmix.NewRand()}
 }
 
 type getSetGenerator struct {
