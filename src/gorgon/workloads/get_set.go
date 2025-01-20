@@ -24,9 +24,9 @@ func (w *getSetWorkload) Generator() gorgon.Generator {
 }
 
 func (w *getSetWorkload) SetUp(opt *gorgon.Options, clients []gorgon.Client) error {
-	keys := []string{"key0", "key1", "key2", "key3", "key4"}
+	keys := []string{"key0", "key1", "key2", "key3", "key4", "key5", "key6", "key7"}
 	w.gen = generators.NewGetSetGenerator(keys)
-	w.gen = generators.Stagger(w.gen, 10*time.Millisecond)
+	w.gen = generators.Stagger(w.gen, time.Millisecond/4)
 	clearOp := clients[0].Invoke(&gorgon.ClearDatabaseInstruction{}, func() int64 { return 0 })
 	if err, ok := clearOp.Output.(error); ok {
 		return err

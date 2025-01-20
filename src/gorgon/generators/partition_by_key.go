@@ -3,11 +3,11 @@ package generators
 import (
 	"sort"
 
-	"github.com/anishathalye/porcupine"
+	"github.com/pavlosg/gorgon/src/gorgon"
 )
 
-func PartitionByKey(history []porcupine.Operation) (ret [][]porcupine.Operation) {
-	operations := make(map[string][]porcupine.Operation)
+func PartitionByKey(history []gorgon.Operation) (ret [][]gorgon.Operation) {
+	operations := make(map[string][]gorgon.Operation)
 	for _, op := range history {
 		instr, ok := op.Input.(interface{ GetKey() string })
 		if !ok {
@@ -18,7 +18,7 @@ func PartitionByKey(history []porcupine.Operation) (ret [][]porcupine.Operation)
 	}
 	type keyOps struct {
 		key string
-		ops []porcupine.Operation
+		ops []gorgon.Operation
 	}
 	var list []keyOps
 	for key, ops := range operations {

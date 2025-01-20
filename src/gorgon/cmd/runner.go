@@ -42,7 +42,7 @@ func (runner *Runner) SetUp() error {
 		}
 	}()
 	for i := 0; i < concurrency; i++ {
-		client, err := runner.db.NewClient()
+		client, err := runner.db.NewClient(i)
 		if err != nil {
 			log.Error("[%s] Error creating new client: %v", runner.name, err)
 			return err
@@ -58,17 +58,24 @@ func (runner *Runner) SetUp() error {
 	if err := workload.SetUp(runner.options, clients); err != nil {
 		return err
 	}
+	log.Info("[%s] Nemesis SetUp", runner.name)
+	if nemesis := runner.scenario.Nemesis; nemesis != nil {
+		if err := nemesis.SetUp(runner.options); err != nil {
+			return err
+		}
+	}
 	runner.clients = clients
 	clients = nil
 	return nil
 }
 
-func (runner *Runner) Run() ([]porcupine.Operation, error) {
+func (runner *Runner) Run() ([]gorgon.Operation, error) {
 	workload := runner.scenario.Workload
 	gen := generators.Synchronize(workload.Generator())
 	log.Info("[%s] Starting workers", runner.name)
 	wg := &sync.WaitGroup{}
-	deadline := time.Now().Add(runner.options.WorkloadDuration)
+	wgNemesis := &sync.WaitGroup{}
+	deadline := time.Now().Add(runner.scenario.WorkloadDuration)
 	operationList := gorgon.NewOperationList()
 	concurrency := runner.options.Concurrency
 	for i := 0; i < concurrency; i++ {
@@ -83,9 +90,15 @@ func (runner *Runner) Run() ([]porcupine.Operation, error) {
 		wg.Add(1)
 		go w.run()
 	}
+	if runner.scenario.Nemesis != nil {
+		wgNemesis.Add(1)
+		go runner.runNemesis(wgNemesis)
+	}
 	log.Info("[%s] Waiting for workers", runner.name)
 	wg.Wait()
 	log.Info("[%s] Workers finished", runner.name)
+	wgNemesis.Wait()
+	log.Info("[%s] Nemesis finished", runner.name)
 	return operationList.Extract(), nil
 }
 
@@ -103,7 +116,8 @@ func (runner *Runner) TearDown() error {
 	return err
 }
 
-func (runner *Runner) Check(history []porcupine.Operation, dir string) (err error) {
+func (runner *Runner) Check(history []gorgon.Operation, dir string) (err error) {
+	const fileTime = "2006-01-02-150405-0700"
 	workload := runner.scenario.Workload
 	model := workload.Generator().Model()
 	ndmodel := porcupine.NondeterministicModel{
@@ -119,12 +133,25 @@ func (runner *Runner) Check(history []porcupine.Operation, dir string) (err erro
 	}
 	dmodel := ndmodel.ToModel()
 	partitions := model.Partition(history)
-	for i, hist := range partitions {
+	now := time.Now()
+	for i, part := range partitions {
+		hist := make([]porcupine.Operation, len(part))
+		for i := 0; i < len(part); i++ {
+			op := part[i]
+			hist[i] = porcupine.Operation{
+				ClientId: op.ClientId,
+				Input:    op.Input,
+				Call:     op.Call,
+				Output:   op.Output,
+				Return:   op.Return,
+			}
+		}
 		result, info := porcupine.CheckOperationsVerbose(dmodel, hist, 0)
 		level := log.INFO
 		if result != porcupine.Ok {
 			level = log.WARNING
-			filePath := path.Join(dir, fmt.Sprintf("%s.%d.html", runner.name, i))
+			filePath := path.Join(dir, EscapeFileName(fmt.Sprintf(
+				"%s.%s.%d.html", now.Format(fileTime), runner.name, i)))
 			visErr := porcupine.VisualizePath(dmodel, info, filePath)
 			if visErr != nil && err == nil {
 				err = visErr
@@ -133,6 +160,14 @@ func (runner *Runner) Check(history []porcupine.Operation, dir string) (err erro
 		log.Log(level, "[%s] Checked partition %d - %s", runner.name, i, result)
 	}
 	return
+}
+
+func (runner *Runner) runNemesis(wg *sync.WaitGroup) {
+	defer wg.Done()
+	err := runner.scenario.Nemesis.Run()
+	if err != nil {
+		log.Error("[%s] Nemesis error: %v", runner.name, err)
+	}
 }
 
 type worker struct {

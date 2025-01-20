@@ -46,7 +46,7 @@ func (gen *getSetGenerator) NextInstruction() (gorgon.Instruction, error) {
 	gen.id++
 	id := gen.id
 	key := gen.keys[gen.rand.Intn(len(gen.keys))]
-	if gen.rand.Int63()&1 == 0 {
+	if gen.rand.Int63()&3 != 0 {
 		return &GetInstruction{Key: key}, nil
 	}
 	return &SetInstruction{Key: key, Value: id}, nil

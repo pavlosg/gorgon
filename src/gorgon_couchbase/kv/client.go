@@ -4,14 +4,13 @@ import (
 	"errors"
 	"time"
 
-	"github.com/anishathalye/porcupine"
 	"github.com/couchbase/gocb/v2"
 	"github.com/pavlosg/gorgon/src/gorgon"
 	"github.com/pavlosg/gorgon/src/gorgon/generators"
 )
 
-func NewClient(id int, url, user, pass string) gorgon.Client {
-	return &client{id: id, url: url, user: user, pass: pass}
+func NewClient(id int, url, user, pass string, durability gocb.DurabilityLevel) gorgon.Client {
+	return &client{id: id, url: url, user: user, pass: pass, durability: durability}
 }
 
 type client struct {
@@ -19,6 +18,7 @@ type client struct {
 	url        string
 	user       string
 	pass       string
+	durability gocb.DurabilityLevel
 	cluster    *gocb.Cluster
 	collection *gocb.Collection
 }
@@ -62,8 +62,8 @@ func (client *client) Close() error {
 	return err
 }
 
-func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int64) porcupine.Operation {
-	op := porcupine.Operation{ClientId: client.id, Input: instruction, Call: getTime()}
+func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int64) gorgon.Operation {
+	op := gorgon.Operation{ClientId: client.id, Input: instruction, Call: getTime()}
 	switch instr := instruction.(type) {
 	case *generators.GetInstruction:
 		result, err := client.collection.Get(instr.Key, nil)
@@ -84,7 +84,7 @@ func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int6
 		}
 		return op
 	case *generators.SetInstruction:
-		_, err := client.collection.Upsert(instr.Key, instr.Value, &gocb.UpsertOptions{ /*DurabilityLevel: gocb.DurabilityLevelMajorityAndPersistOnMaster*/ })
+		_, err := client.collection.Upsert(instr.Key, instr.Value, &gocb.UpsertOptions{DurabilityLevel: client.durability})
 		op.Return = getTime()
 		if err != nil {
 			op.Output = err

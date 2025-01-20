@@ -3,8 +3,6 @@ package gorgon
 import (
 	"sync"
 	"time"
-
-	"github.com/anishathalye/porcupine"
 )
 
 type OperationList struct {
@@ -16,7 +14,7 @@ type OperationList struct {
 
 type operationListNode struct {
 	next  *operationListNode
-	value porcupine.Operation
+	value Operation
 }
 
 func NewOperationList() *OperationList {
@@ -34,7 +32,7 @@ func (list *OperationList) GetTime() int64 {
 	return now
 }
 
-func (list *OperationList) Append(op porcupine.Operation) {
+func (list *OperationList) Append(op Operation) {
 	node := &operationListNode{value: op}
 	list.mutex.Lock()
 	node.next = list.head
@@ -42,13 +40,13 @@ func (list *OperationList) Append(op porcupine.Operation) {
 	list.mutex.Unlock()
 }
 
-func (list *OperationList) Extract() []porcupine.Operation {
+func (list *OperationList) Extract() []Operation {
 	list.mutex.Lock()
 	head := list.head
 	list.head = nil
 	list.mutex.Unlock()
 
-	var ret []porcupine.Operation
+	var ret []Operation
 	for ; head != nil; head = head.next {
 		ret = append(ret, head.value)
 	}

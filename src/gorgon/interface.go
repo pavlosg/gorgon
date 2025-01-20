@@ -2,8 +2,7 @@ package gorgon
 
 import (
 	"errors"
-
-	"github.com/anishathalye/porcupine"
+	"time"
 )
 
 var ErrUnsupportedInstruction = errors.New("gorgon: unsupported instruction")
@@ -26,7 +25,7 @@ func (ClearDatabaseInstruction) String() string {
 
 type Client interface {
 	Open() error
-	Invoke(instruction Instruction, getTime func() int64) porcupine.Operation
+	Invoke(instruction Instruction, getTime func() int64) Operation
 	Close() error
 }
 
@@ -52,14 +51,23 @@ type Workload interface {
 type Scenario struct {
 	Workload
 	Nemesis
+	WorkloadDuration time.Duration
 }
 
 type Database interface {
 	Name() string
 	Scenarios(opt *Options) []Scenario
 	SetUp(opt *Options) error
-	NewClient() (Client, error)
+	NewClient(id int) (Client, error)
 	TearDown() error
+}
+
+type Operation struct {
+	ClientId int
+	Input    Instruction
+	Call     int64 // invocation timestamp
+	Output   interface{}
+	Return   int64 // response timestamp
 }
 
 type State = interface{}
@@ -68,7 +76,7 @@ type Model struct {
 	// Partition functions, such that a history is linearizable if and only
 	// if each partition is linearizable. If left nil, this package will
 	// skip partitioning.
-	Partition func(history []porcupine.Operation) [][]porcupine.Operation
+	Partition func(history []Operation) [][]Operation
 	// Initial state of the system.
 	Init func() []State
 	// Step function for the system. Returns all possible next states for
