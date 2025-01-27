@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"path"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anishathalye/porcupine"
 	"github.com/pavlosg/gorgon/src/gorgon"
 	"github.com/pavlosg/gorgon/src/gorgon/generators"
 	"github.com/pavlosg/gorgon/src/gorgon/log"
+	"github.com/pavlosg/gorgon/src/gorgon/nemeses"
 )
 
 type Runner struct {
@@ -21,11 +23,10 @@ type Runner struct {
 }
 
 func NewRunner(db gorgon.Database, scenario gorgon.Scenario, opts *gorgon.Options) *Runner {
-	nemesis := "nil"
-	if scenario.Nemesis != nil {
-		nemesis = scenario.Nemesis.Name()
+	if scenario.Nemesis == nil {
+		scenario.Nemesis = &nemeses.NilNemesis{}
 	}
-	name := fmt.Sprintf("%s~%s~%s", db.Name(), scenario.Workload.Name(), nemesis)
+	name := fmt.Sprintf("%s~%s~%s", db.Name(), scenario.Workload.Name(), scenario.Nemesis.Name())
 	return &Runner{name, db, scenario, opts, nil}
 }
 
@@ -63,10 +64,9 @@ func (runner *Runner) SetUp() error {
 		return err
 	}
 	log.Info("[%s] Nemesis SetUp", runner.name)
-	if nemesis := runner.scenario.Nemesis; nemesis != nil {
-		if err := nemesis.SetUp(runner.options); err != nil {
-			return err
-		}
+	nemesis := runner.scenario.Nemesis
+	if err := nemesis.SetUp(runner.options); err != nil {
+		return err
 	}
 	runner.clients = clients
 	clients = nil
@@ -76,33 +76,32 @@ func (runner *Runner) SetUp() error {
 func (runner *Runner) Run() ([]gorgon.Operation, error) {
 	workload := runner.scenario.Workload
 	gen := generators.Synchronize(workload.Generator())
-	log.Info("[%s] Starting workers", runner.name)
+	stopFlag := &atomic.Bool{}
 	wg := &sync.WaitGroup{}
 	wgNemesis := &sync.WaitGroup{}
-	deadline := time.Now().Add(runner.scenario.WorkloadDuration)
 	operationList := gorgon.NewOperationList()
 	concurrency := runner.options.Concurrency
+	log.Info("[%s] Starting workers", runner.name)
 	for i := 0; i < concurrency; i++ {
 		w := &worker{
+			stopFlag:   stopFlag,
 			wg:         wg,
 			gen:        gen,
 			client:     runner.clients[i],
 			operations: operationList,
-			deadline:   deadline,
 			name:       fmt.Sprintf("%s:%d", runner.name, i),
 		}
 		wg.Add(1)
 		go w.run()
 	}
-	if runner.scenario.Nemesis != nil {
-		wgNemesis.Add(1)
-		go runner.runNemesis(wgNemesis)
-	}
-	log.Info("[%s] Waiting for workers", runner.name)
+	log.Info("[%s] Starting nemesis", runner.name)
+	wgNemesis.Add(1)
+	go runner.runNemesis(wgNemesis)
+	wgNemesis.Wait()
+	stopFlag.Store(true)
+	log.Info("[%s] Nemesis finished", runner.name)
 	wg.Wait()
 	log.Info("[%s] Workers finished", runner.name)
-	wgNemesis.Wait()
-	log.Info("[%s] Nemesis finished", runner.name)
 	return operationList.Extract(), nil
 }
 
@@ -175,17 +174,17 @@ func (runner *Runner) runNemesis(wg *sync.WaitGroup) {
 }
 
 type worker struct {
+	stopFlag   *atomic.Bool
 	wg         *sync.WaitGroup
 	gen        gorgon.Generator
 	client     gorgon.Client
 	operations *gorgon.OperationList
-	deadline   time.Time
 	name       string
 }
 
 func (w *worker) run() {
 	defer w.wg.Done()
-	for time.Now().Before(w.deadline) {
+	for !w.stopFlag.Load() {
 		instr, err := w.gen.NextInstruction()
 		if err != nil {
 			log.Error("[%s] Generator.NextInstruction(): %v", w.name, err)

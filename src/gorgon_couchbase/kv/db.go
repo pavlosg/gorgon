@@ -72,9 +72,8 @@ func (db *database) NewClient(id int) (gorgon.Client, error) {
 }
 
 func (*database) Scenarios(opt *gorgon.Options) []gorgon.Scenario {
-	dur := opt.WorkloadDuration
 	return []gorgon.Scenario{
-		{Workload: workloads.NewGetSetWorkload(), Nemesis: nil, WorkloadDuration: dur},
-		{Workload: workloads.NewGetSetWorkload(), Nemesis: NewKillNemesis("memcached"), WorkloadDuration: dur},
+		{Workload: workloads.NewGetSetWorkload(), Nemesis: nil},
+		{Workload: workloads.NewGetSetWorkload(), Nemesis: NewKillNemesis("memcached")},
 	}
 }

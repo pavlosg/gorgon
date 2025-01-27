@@ -1,9 +1,6 @@
 package gorgon
 
-import (
-	"errors"
-	"time"
-)
+import "errors"
 
 var ErrUnsupportedInstruction = errors.New("gorgon: unsupported instruction")
 
@@ -51,7 +48,6 @@ type Workload interface {
 type Scenario struct {
 	Workload
 	Nemesis
-	WorkloadDuration time.Duration
 }
 
 type Database interface {
