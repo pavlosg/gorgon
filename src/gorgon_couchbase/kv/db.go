@@ -6,6 +6,7 @@ import (
 
 	"github.com/couchbase/gocb/v2"
 	"github.com/pavlosg/gorgon/src/gorgon"
+	"github.com/pavlosg/gorgon/src/gorgon/nemeses"
 	"github.com/pavlosg/gorgon/src/gorgon/workloads"
 )
 
@@ -75,5 +76,6 @@ func (*database) Scenarios(opt *gorgon.Options) []gorgon.Scenario {
 	return []gorgon.Scenario{
 		{Workload: workloads.NewGetSetWorkload(), Nemesis: nil},
 		{Workload: workloads.NewGetSetWorkload(), Nemesis: NewKillNemesis("memcached")},
+		{Workload: workloads.NewGetSetWorkload(), Nemesis: &nemeses.NetworkPartitionNemesis{}},
 	}
 }

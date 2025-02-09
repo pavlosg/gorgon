@@ -77,6 +77,7 @@ func (runner *Runner) Run() ([]gorgon.Operation, error) {
 	workload := runner.scenario.Workload
 	gen := generators.Synchronize(workload.Generator())
 	stopFlag := &atomic.Bool{}
+	defer stopFlag.Store(true)
 	wg := &sync.WaitGroup{}
 	wgNemesis := &sync.WaitGroup{}
 	operationList := gorgon.NewOperationList()
@@ -96,9 +97,8 @@ func (runner *Runner) Run() ([]gorgon.Operation, error) {
 	}
 	log.Info("[%s] Starting nemesis", runner.name)
 	wgNemesis.Add(1)
-	go runner.runNemesis(wgNemesis)
+	go runner.runNemesis(stopFlag, wgNemesis)
 	wgNemesis.Wait()
-	stopFlag.Store(true)
 	log.Info("[%s] Nemesis finished", runner.name)
 	wg.Wait()
 	log.Info("[%s] Workers finished", runner.name)
@@ -106,8 +106,8 @@ func (runner *Runner) Run() ([]gorgon.Operation, error) {
 }
 
 func (runner *Runner) TearDown() error {
-	workload := runner.scenario.Workload
-	err := workload.TearDown()
+	errNemesis := runner.scenario.Nemesis.TearDown()
+	errWorkload := runner.scenario.Workload.TearDown()
 	for i, client := range runner.clients {
 		if client != nil {
 			err := client.Close()
@@ -116,7 +116,10 @@ func (runner *Runner) TearDown() error {
 			}
 		}
 	}
-	return err
+	if errNemesis != nil {
+		return errNemesis
+	}
+	return errWorkload
 }
 
 func (runner *Runner) Check(history []gorgon.Operation, dir string) (err error) {
@@ -165,8 +168,11 @@ func (runner *Runner) Check(history []gorgon.Operation, dir string) (err error) 
 	return
 }
 
-func (runner *Runner) runNemesis(wg *sync.WaitGroup) {
-	defer wg.Done()
+func (runner *Runner) runNemesis(stopFlag *atomic.Bool, wg *sync.WaitGroup) {
+	defer func() {
+		stopFlag.Store(true)
+		wg.Done()
+	}()
 	err := runner.scenario.Nemesis.Run()
 	if err != nil {
 		log.Error("[%s] Nemesis error: %v", runner.name, err)

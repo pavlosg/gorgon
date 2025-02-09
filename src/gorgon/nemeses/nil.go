@@ -10,7 +10,7 @@ type NilNemesis struct {
 	duration time.Duration
 }
 
-func (nemesis *NilNemesis) Name() string {
+func (*NilNemesis) Name() string {
 	return "nil"
 }
 
@@ -19,7 +19,7 @@ func (nemesis *NilNemesis) SetUp(opt *gorgon.Options) error {
 	return nil
 }
 
-func (nemesis *NilNemesis) TearDown() error {
+func (*NilNemesis) TearDown() error {
 	return nil
 }
 

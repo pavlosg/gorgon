@@ -2,7 +2,6 @@ package kv
 
 import (
 	"fmt"
-	"math/rand"
 	"net/rpc"
 	"os/exec"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/pavlosg/gorgon/src/gorgon"
 	"github.com/pavlosg/gorgon/src/gorgon/jrpc"
 	"github.com/pavlosg/gorgon/src/gorgon/log"
+	"github.com/pavlosg/gorgon/src/gorgon/splitmix"
 )
 
 type KillNemesis struct {
@@ -28,7 +28,7 @@ func (nemesis *KillNemesis) Name() string {
 
 func (nemesis *KillNemesis) SetUp(opt *gorgon.Options) error {
 	nemesis.options = opt
-	node := opt.Nodes[rand.Intn(len(opt.Nodes))]
+	node := opt.Nodes[splitmix.Rand.Intn(len(opt.Nodes))]
 	client, err := jrpc.Dial(fmt.Sprintf("%s:%d", node, opt.RpcPort), []byte("password"))
 	if err != nil {
 		return err
@@ -47,7 +47,7 @@ func (nemesis *KillNemesis) TearDown() error {
 func (nemesis *KillNemesis) Run() error {
 	deadline := time.Now().Add(nemesis.options.WorkloadDuration)
 	time.Sleep(2 * time.Second)
-	for time.Now().Before(deadline) {
+	for time.Until(deadline) > 0 {
 		var reply string
 		arg := KillProcess{Name: nemesis.process, Signal: 9}
 		err := nemesis.client.Call("KillRpc.Pkill", arg, &reply)

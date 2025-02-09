@@ -1,4 +1,4 @@
-all: control/src.tgz node/src.tgz
+archive: control/src.tgz node/src.tgz
 
 control/src.tgz: node/src.tgz
 	cp $< $@
@@ -6,8 +6,8 @@ control/src.tgz: node/src.tgz
 node/src.tgz: ../../src
 	tar -czf $@ -C ../.. src
 
-build: all
+build: archive
 	docker-compose -f docker-compose.yml build
 
 clean:
-	rm control/*.tgz node/*.tgz
+	rm */src.tgz
