@@ -34,7 +34,6 @@ services:
     container_name: gorgon-n1
     hostname: n1.local
     image: gorgon_couchbase-node
-    depends_on: [n0]
     ports:
       - "8091:8091"
   n2:
@@ -42,7 +41,6 @@ services:
     container_name: gorgon-n2
     hostname: n2.local
     image: gorgon_couchbase-node
-    depends_on: [n0]
     ports:
       - "8092:8091"
 

@@ -24,9 +24,10 @@ func Main(db gorgon.Database, args []string) int {
 	}
 	command := args[0]
 	args = args[1:]
-	if command == "run" {
+	switch command {
+	case "run":
 		return cmdRun(db, args)
-	} else if command == "rpc" {
+	case "rpc":
 		return cmdRpc(args)
 	}
 	fmt.Println("Unknown command:", command)
@@ -42,10 +43,6 @@ func cmdRun(db gorgon.Database, args []string) int {
 	if ret := parseOptions(args, opt, &filter); ret != 0 {
 		return ret
 	}
-	if err := db.SetUp(opt); err != nil {
-		return 1
-	}
-	defer db.TearDown()
 	scenarios := db.Scenarios(opt)
 	for _, scenario := range scenarios {
 		runner := NewRunner(db, scenario, opt)

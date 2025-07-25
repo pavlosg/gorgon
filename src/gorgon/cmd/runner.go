@@ -35,7 +35,15 @@ func (runner *Runner) Name() string {
 }
 
 func (runner *Runner) SetUp() error {
-	workload := runner.scenario.Workload
+	log.Info("[%s] Database SetUp", runner.name)
+	if err := runner.db.SetUp(runner.options); err != nil {
+		return err
+	}
+	defer func() {
+		if err := runner.db.TearDown(); err != nil {
+			log.Error("[%s] Error in Database.TearDown: %v", runner.name, err)
+		}
+	}()
 	log.Info("[%s] Creating clients", runner.name)
 	concurrency := runner.options.Concurrency
 	clients := make([]gorgon.Client, concurrency)
@@ -60,12 +68,11 @@ func (runner *Runner) SetUp() error {
 		clients[i] = client
 	}
 	log.Info("[%s] Workload SetUp", runner.name)
-	if err := workload.SetUp(runner.options, clients); err != nil {
+	if err := runner.scenario.Workload.SetUp(runner.options, clients); err != nil {
 		return err
 	}
 	log.Info("[%s] Nemesis SetUp", runner.name)
-	nemesis := runner.scenario.Nemesis
-	if err := nemesis.SetUp(runner.options); err != nil {
+	if err := runner.scenario.Nemesis.SetUp(runner.options); err != nil {
 		return err
 	}
 	runner.clients = clients

@@ -2,10 +2,16 @@ package kv
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/couchbase/gocb/v2"
 	"github.com/pavlosg/gorgon/src/gorgon"
+	"github.com/pavlosg/gorgon/src/gorgon/log"
 	"github.com/pavlosg/gorgon/src/gorgon/nemeses"
 	"github.com/pavlosg/gorgon/src/gorgon/workloads"
 )
@@ -60,6 +66,68 @@ func (db *database) SetUp(opt *gorgon.Options) error {
 			return fmt.Errorf("kv: invalid durability %q", durability)
 		}
 	}
+
+	for _, node := range opt.Nodes {
+		if err := db.httpPost(node, "controller/hardResetNode", nil); err != nil {
+			return err
+		}
+		if err := db.httpPost(node, "nodes/self/controller/settings", nil); err != nil {
+			return err
+		}
+		if err := db.httpPost(node, "node/controller/rename", map[string]string{
+			"hostname": node}); err != nil {
+			return err
+		}
+	}
+	if err := db.httpPost(opt.Nodes[0], "clusterInit", map[string]string{
+		"hostname": opt.Nodes[0],
+		"username": db.user,
+		"password": db.pass,
+		"services": "kv",
+		"port":     "SAME"}); err != nil {
+		return err
+	}
+	for i, node := range opt.Nodes {
+		if i == 0 {
+			continue
+		}
+		if err := db.httpPost(node, "node/controller/doJoinCluster", map[string]string{
+			"hostname": opt.Nodes[0],
+			"user":     db.user,
+			"password": db.pass,
+			"services": "kv"}); err != nil {
+			return err
+		}
+	}
+	var knownNodes strings.Builder
+	for i, node := range opt.Nodes {
+		if i == 0 {
+			knownNodes.WriteString("ns_1@")
+		} else {
+			knownNodes.WriteString(",ns_1@")
+		}
+		knownNodes.WriteString(node)
+	}
+	if err := db.httpPost(opt.Nodes[0], "controller/rebalance", map[string]string{
+		"knownNodes": knownNodes.String()}); err != nil {
+		return err
+	}
+	time.Sleep(5 * time.Second) // Wait for rebalance to complete
+	if err := db.httpPost(opt.Nodes[0], "settings/autoFailover", map[string]string{
+		"enabled": "true",
+		"timeout": "30"}); err != nil {
+		return err
+	}
+	if err := db.httpPost(opt.Nodes[0], "pools/default/buckets", map[string]string{
+		"name":           "default",
+		"ramQuota":       "1024",
+		"evictionPolicy": "fullEviction",
+		"replicaNumber":  "2",
+		"flushEnabled":   "1"}); err != nil {
+		return err
+	}
+	time.Sleep(5 * time.Second) // Wait for bucket creation
+
 	return nil
 }
 
@@ -67,9 +135,36 @@ func (db *database) TearDown() error {
 	return nil
 }
 
+func (db *database) httpPost(node, endpoint string, form map[string]string) error {
+	values := make(url.Values, len(form))
+	for k, v := range form {
+		values.Set(k, v)
+	}
+	uri := fmt.Sprintf("http://%s:%s@%s:8091/%s", db.user, db.pass, node, endpoint)
+	log.Info("HTTP POST %s %s %s", node, endpoint, values.Encode())
+	resp, err := http.PostForm(uri, values)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusAccepted {
+			return nil
+		}
+		bytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("HTTP POST returned %d: %s", resp.StatusCode, string(bytes))
+	}
+	return nil
+}
+
 func (db *database) NewClient(id int) (gorgon.Client, error) {
-	url := fmt.Sprintf("couchbase://%s:%d", db.options.Nodes[0], db.port)
-	return NewClient(id, url, db.user, db.pass, db.durability), nil
+	uri := fmt.Sprintf("couchbase://%s:%d", db.options.Nodes[0], db.port)
+	return NewClient(id, uri, db.user, db.pass, db.durability), nil
 }
 
 func (*database) Scenarios(opt *gorgon.Options) []gorgon.Scenario {
