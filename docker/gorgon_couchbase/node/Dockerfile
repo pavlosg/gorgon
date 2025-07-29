@@ -9,7 +9,7 @@ WORKDIR /root
 RUN wget https://packages.couchbase.com/releases/couchbase-release/couchbase-release-1.0-noarch.deb
 RUN dpkg -i ./couchbase-release-1.0-noarch.deb
 RUN apt-get -qy update
-RUN apt-get -qy install couchbase-server-community
+RUN apt-get -qy install couchbase-server
 RUN rm *.deb
 
 COPY init.sh /init.sh

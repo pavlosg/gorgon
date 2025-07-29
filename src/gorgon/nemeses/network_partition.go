@@ -14,9 +14,14 @@ import (
 )
 
 type NetworkPartitionNemesis struct {
-	options *gorgon.Options
-	client  *rpc.Client
-	node    string
+	allowedPorts []int
+	options      *gorgon.Options
+	client       *rpc.Client
+	node         string
+}
+
+func NewNetworkPartitionNemesis(allowedPorts []int) *NetworkPartitionNemesis {
+	return &NetworkPartitionNemesis{allowedPorts: allowedPorts}
 }
 
 func (*NetworkPartitionNemesis) Name() string {
@@ -48,7 +53,13 @@ func (nemesis *NetworkPartitionNemesis) TearDown() error {
 
 func (nemesis *NetworkPartitionNemesis) Run() error {
 	deadline := time.Now().Add(nemesis.options.WorkloadDuration)
-	time.Sleep(time.Until(deadline) / 3)
+	time.Sleep(time.Until(deadline) / 4)
+	for _, port := range nemesis.allowedPorts {
+		err := nemesis.iptables("-A", "INPUT", "-p", "tcp", "--dport", strconv.Itoa(port), "-j", "ACCEPT")
+		if err != nil {
+			return err
+		}
+	}
 	err := nemesis.iptables("-A", "INPUT", "-j", "DROP")
 	if err != nil {
 		return err

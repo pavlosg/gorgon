@@ -26,6 +26,7 @@ type database struct {
 	pass       string
 	port       int
 	durability gocb.DurabilityLevel
+	replicas   int
 }
 
 func (*database) Name() string {
@@ -65,6 +66,18 @@ func (db *database) SetUp(opt *gorgon.Options) error {
 		default:
 			return fmt.Errorf("kv: invalid durability %q", durability)
 		}
+	}
+	if replicas, ok := opt.Extras["db_replicas"]; ok {
+		n, err := strconv.Atoi(replicas)
+		if err != nil {
+			return err
+		}
+		if n < 0 || n > 3 {
+			return fmt.Errorf("kv: invalid number of replicas %d", n)
+		}
+		db.replicas = n
+	} else {
+		db.replicas = 1
 	}
 
 	for _, node := range opt.Nodes {
@@ -114,15 +127,16 @@ func (db *database) SetUp(opt *gorgon.Options) error {
 	}
 	time.Sleep(5 * time.Second) // Wait for rebalance to complete
 	if err := db.httpPost(opt.Nodes[0], "settings/autoFailover", map[string]string{
-		"enabled": "true",
-		"timeout": "30"}); err != nil {
+		"enabled":                            "true",
+		"timeout":                            "15",
+		"failoverPreserveDurabilityMajority": "true"}); err != nil {
 		return err
 	}
 	if err := db.httpPost(opt.Nodes[0], "pools/default/buckets", map[string]string{
 		"name":           "default",
 		"ramQuota":       "1024",
 		"evictionPolicy": "fullEviction",
-		"replicaNumber":  "2",
+		"replicaNumber":  strconv.Itoa(db.replicas),
 		"flushEnabled":   "1"}); err != nil {
 		return err
 	}
@@ -171,6 +185,6 @@ func (*database) Scenarios(opt *gorgon.Options) []gorgon.Scenario {
 	return []gorgon.Scenario{
 		{Workload: workloads.NewGetSetWorkload(), Nemesis: nil},
 		{Workload: workloads.NewGetSetWorkload(), Nemesis: NewKillNemesis("memcached")},
-		{Workload: workloads.NewGetSetWorkload(), Nemesis: &nemeses.NetworkPartitionNemesis{}},
+		{Workload: workloads.NewGetSetWorkload(), Nemesis: nemeses.NewNetworkPartitionNemesis([]int{11210})},
 	}
 }

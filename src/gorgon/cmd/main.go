@@ -76,7 +76,7 @@ func parseOptions(args []string, opt *gorgon.Options, filter *Filter) int {
 	flags.Optional("-E", "Wildcard pattern for scenarios to exclude", &excludePattern)
 	flags.Optional("--concurrency", "Number of clients to use", &opt.Concurrency)
 	flags.Optional("--rpc-port", "RPC port to connect", &opt.RpcPort)
-	workloadDuration := 30
+	workloadDuration := 60
 	flags.Optional("--workload-duration", "Intended workload/nemesis duration is seconds", &workloadDuration)
 	nodes := "localhost"
 	flags.Optional("--nodes", "Comma-separated list of nodes", &nodes)
