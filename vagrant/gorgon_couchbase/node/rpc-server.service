@@ -1,0 +1,10 @@
+[Unit]
+Description=RPC Server
+After=couchbase-server.service
+
+[Service]
+Type=simple
+ExecStart=bash /home/vagrant/rpc-server.sh
+
+[Install]
+WantedBy=multi-user.target
