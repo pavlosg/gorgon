@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -125,7 +126,27 @@ func (db *database) SetUp(opt *gorgon.Options) error {
 		"knownNodes": knownNodes.String()}); err != nil {
 		return err
 	}
-	time.Sleep(5 * time.Second) // Wait for rebalance to complete
+	// Wait for rebalance to complete
+	for {
+		time.Sleep(time.Second)
+		bytes, err := db.httpGet(opt.Nodes[0], "pools/default/rebalanceProgress")
+		if err != nil {
+			return err
+		}
+		obj := make(map[string]interface{})
+		if err := json.Unmarshal(bytes, &obj); err != nil {
+			return fmt.Errorf("kv: cannot parse rebalance progress: %v", err)
+		}
+		status, ok := obj["status"].(string)
+		if !ok {
+			return fmt.Errorf("kv: cannot find rebalance status in %s", string(bytes))
+		}
+		if status == "none" {
+			log.Info("Rebalance completed")
+			break
+		}
+		log.Info("Rebalance in progress: %s", string(bytes))
+	}
 	if err := db.httpPost(opt.Nodes[0], "settings/autoFailover", map[string]string{
 		"enabled":                            "true",
 		"timeout":                            "15",
@@ -147,6 +168,26 @@ func (db *database) SetUp(opt *gorgon.Options) error {
 
 func (db *database) TearDown() error {
 	return nil
+}
+
+func (db *database) httpGet(node, endpoint string) ([]byte, error) {
+	uri := fmt.Sprintf("http://%s:%s@%s:8091/%s", db.user, db.pass, node, endpoint)
+	log.Info("HTTP GET %s", uri)
+	resp, err := http.Get(uri)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return nil, err
+	}
+	bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP GET returned %d: %s", resp.StatusCode, string(bytes))
+	}
+	return bytes, nil
 }
 
 func (db *database) httpPost(node, endpoint string, form map[string]string) error {
