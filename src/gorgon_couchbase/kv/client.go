@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -9,8 +10,13 @@ import (
 	"github.com/pavlosg/gorgon/src/gorgon/generators"
 )
 
-func NewClient(id int, url, user, pass string, durability gocb.DurabilityLevel) gorgon.Client {
-	return &client{id: id, url: url, user: user, pass: pass, durability: durability}
+func NewClient(id int, url, user, pass string) gorgon.Client {
+	return &client{id: id, url: url, user: user, pass: pass}
+}
+
+type ClientConfig struct {
+	Durability string
+	Timeout    time.Duration
 }
 
 type client struct {
@@ -18,6 +24,7 @@ type client struct {
 	url        string
 	user       string
 	pass       string
+	config     ClientConfig
 	durability gocb.DurabilityLevel
 	cluster    *gocb.Cluster
 	collection *gocb.Collection
@@ -29,7 +36,16 @@ func (client *client) GetId() int {
 	return client.id
 }
 
-func (client *client) Open() error {
+func (client *client) Open(config string) error {
+	if err := json.Unmarshal([]byte(config), &client.config); err != nil {
+		return err
+	}
+	if len(client.config.Durability) != 0 {
+		client.durability = parseDurabilityLevel(client.config.Durability)
+		if client.durability == gocb.DurabilityLevelUnknown {
+			return errors.New("kv: invalid durability level in config")
+		}
+	}
 	cluster, err := gocb.Connect(client.url, gocb.ClusterOptions{
 		Username: client.user,
 		Password: client.pass,
@@ -66,7 +82,7 @@ func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int6
 	op := gorgon.Operation{ClientId: client.id, Input: instruction, Call: getTime()}
 	switch instr := instruction.(type) {
 	case *generators.GetInstruction:
-		result, err := client.collection.Get(instr.Key, nil)
+		result, err := client.collection.Get(instr.Key, &gocb.GetOptions{Timeout: client.config.Timeout})
 		op.Return = getTime()
 		if err != nil {
 			if !errors.Is(err, gocb.ErrDocumentNotFound) {
@@ -84,11 +100,16 @@ func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int6
 		}
 		return op
 	case *generators.SetInstruction:
-		_, err := client.collection.Upsert(instr.Key, instr.Value, &gocb.UpsertOptions{DurabilityLevel: client.durability})
+		_, err := client.collection.Upsert(instr.Key, instr.Value,
+			&gocb.UpsertOptions{DurabilityLevel: client.durability, Timeout: client.config.Timeout})
 		op.Return = getTime()
 		if err != nil {
-			op.Output = err
-			return op
+			if errors.Is(err, gocb.ErrUnambiguousTimeout) ||
+				errors.Is(err, gocb.ErrDurabilityImpossible) {
+				op.Output = gorgon.WrapUnambiguousError(err)
+			} else {
+				op.Output = err
+			}
 		}
 		return op
 	case *gorgon.ClearDatabaseInstruction:
@@ -100,4 +121,19 @@ func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int6
 	op.Return = getTime()
 	op.Output = gorgon.ErrUnsupportedInstruction
 	return op
+}
+
+func parseDurabilityLevel(level string) gocb.DurabilityLevel {
+	switch level {
+	case "none":
+		return gocb.DurabilityLevelNone
+	case "majority":
+		return gocb.DurabilityLevelMajority
+	case "majorityPersistActive":
+		return gocb.DurabilityLevelMajorityAndPersistOnMaster
+	case "persistMajority":
+		return gocb.DurabilityLevelPersistToMajority
+	default:
+		return gocb.DurabilityLevelUnknown
+	}
 }

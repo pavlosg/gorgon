@@ -36,7 +36,7 @@ func (runner *Runner) Name() string {
 
 func (runner *Runner) SetUp() error {
 	log.Info("[%s] Database SetUp", runner.name)
-	if err := runner.db.SetUp(runner.options); err != nil {
+	if err := runner.db.SetUp(); err != nil {
 		return err
 	}
 	defer func() {
@@ -54,13 +54,14 @@ func (runner *Runner) SetUp() error {
 			}
 		}
 	}()
+	config := runner.db.ClientConfig()
 	for i := 0; i < concurrency; i++ {
 		client, err := runner.db.NewClient(i)
 		if err != nil {
 			log.Error("[%s] Error creating new client: %v", runner.name, err)
 			return err
 		}
-		err = client.Open()
+		err = client.Open(config)
 		if err != nil {
 			log.Error("[%s] Error opening client: %v", runner.name, err)
 			return err

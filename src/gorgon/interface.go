@@ -1,8 +1,11 @@
 package gorgon
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
-var ErrUnsupportedInstruction = errors.New("gorgon: unsupported instruction")
+var ErrUnsupportedInstruction = WrapUnambiguousError(errors.New("gorgon: unsupported instruction"))
 
 type Instruction interface {
 	String() string
@@ -21,7 +24,7 @@ func (ClearDatabaseInstruction) String() string {
 }
 
 type Client interface {
-	Open() error
+	Open(config string) error
 	Invoke(instruction Instruction, getTime func() int64) Operation
 	Close() error
 }
@@ -52,10 +55,21 @@ type Scenario struct {
 
 type Database interface {
 	Name() string
-	Scenarios(opt *Options) []Scenario
-	SetUp(opt *Options) error
+	SetOptions(opt *Options) error
+	Scenarios() []Scenario
+	SetUp() error
 	NewClient(id int) (Client, error)
+	ClientConfig() string
 	TearDown() error
+}
+
+type Options struct {
+	Args             []string
+	Nodes            []string
+	WorkloadDuration time.Duration
+	Concurrency      int
+	RpcPort          int
+	RpcPassword      string
 }
 
 type Operation struct {

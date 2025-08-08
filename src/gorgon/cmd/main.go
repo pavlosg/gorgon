@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -13,37 +14,37 @@ import (
 
 const exitUsage = 2
 
-func usage() int {
-	fmt.Println("Usage:", os.Args[0], "run|rpc")
-	return exitUsage
-}
-
-func Main(db gorgon.Database, args []string) int {
-	if len(args) == 0 {
-		return usage()
+func Main(db gorgon.Database) int {
+	var filter Filter
+	opt := &gorgon.Options{
+		WorkloadDuration: time.Minute,
+		Concurrency:      3,
+		RpcPort:          9090,
 	}
-	command := args[0]
-	args = args[1:]
-	switch command {
+	ret := parseOptions(opt, &filter)
+	if ret != 0 {
+		return ret
+	}
+	if err := db.SetOptions(opt); err != nil {
+		log.Error("Error in Database.SetOptions: %v", err)
+		return 1
+	}
+	switch flag.Arg(0) {
 	case "run":
-		return cmdRun(db, args)
+		return cmdRun(db, opt, &filter)
 	case "rpc":
-		return cmdRpc(args)
+		return cmdRpc(opt)
 	}
-	fmt.Println("Unknown command:", command)
 	return usage()
 }
 
-func cmdRun(db gorgon.Database, args []string) int {
-	opt := &gorgon.Options{
-		Concurrency: 3,
-		RpcPort:     9090,
-	}
-	var filter Filter
-	if ret := parseOptions(args, opt, &filter); ret != 0 {
-		return ret
-	}
-	scenarios := db.Scenarios(opt)
+func usage() int {
+	fmt.Println("Usage:", os.Args[0], "[options] run|rpc [args...]")
+	return exitUsage
+}
+
+func cmdRun(db gorgon.Database, opt *gorgon.Options, filter *Filter) int {
+	scenarios := db.Scenarios()
 	for _, scenario := range scenarios {
 		runner := NewRunner(db, scenario, opt)
 		if !filter.Match(runner.Name()) {
@@ -68,39 +69,48 @@ func cmdRun(db gorgon.Database, args []string) int {
 	return 0
 }
 
-func parseOptions(args []string, opt *gorgon.Options, filter *Filter) int {
-	var flags Flags
+func cmdRpc(opt *gorgon.Options) int {
+	err := jrpc.Listen(fmt.Sprintf(":%v", opt.RpcPort), []byte(opt.RpcPassword))
+	if err != nil {
+		log.Error("rpc: %v", err)
+		return 1
+	}
+	return 0
+}
+
+func parseOptions(opt *gorgon.Options, filter *Filter) int {
 	matchPattern := "*"
 	excludePattern := ""
-	flags.Optional("-R", "Wildcard pattern for scenarios to run", &matchPattern)
-	flags.Optional("-E", "Wildcard pattern for scenarios to exclude", &excludePattern)
-	flags.Optional("--concurrency", "Number of clients to use", &opt.Concurrency)
-	flags.Optional("--rpc-port", "RPC port to connect", &opt.RpcPort)
-	workloadDuration := 60
-	flags.Optional("--workload-duration", "Intended workload/nemesis duration is seconds", &workloadDuration)
 	nodes := "localhost"
-	flags.Optional("--nodes", "Comma-separated list of nodes", &nodes)
-	extras := ""
-	flags.Optional("--extras", "Extra options (e.g. 'foo=fuz;bar=baz')", &extras)
 
-	if !flags.Parse(args) {
-		return exitUsage
+	flag.StringVar(&matchPattern, "gorgon-filter", matchPattern, "Wildcard pattern for scenarios to run")
+	flag.StringVar(&excludePattern, "gorgon-exclude", excludePattern, "Wildcard pattern for scenarios to exclude")
+	flag.StringVar(&nodes, "gorgon-nodes", nodes, "Comma-separated list of nodes")
+	flag.DurationVar(&opt.WorkloadDuration, "gorgon-workload-duration", opt.WorkloadDuration, "Intended workload/nemesis duration")
+	flag.IntVar(&opt.Concurrency, "gorgon-concurrency", opt.Concurrency, "Number of clients to use")
+	flag.IntVar(&opt.RpcPort, "gorgon-rpc-port", opt.RpcPort, "RPC port to connect")
+	flag.StringVar(&opt.RpcPassword, "gorgon-rpc-password", opt.RpcPassword, "RPC password")
+
+	flag.Parse()
+	if flag.NArg() == 0 {
+		return usage()
 	}
+
+	opt.Args = flag.Args()[1:]
 
 	*filter = MakeFilter(matchPattern, excludePattern)
 	if opt.Concurrency < 1 {
-		fmt.Println("Invalid concurrency", opt.RpcPort)
+		fmt.Println("Invalid concurrency", opt.Concurrency)
 		return exitUsage
 	}
 	if opt.RpcPort <= 0 || opt.RpcPort >= (1<<16) {
 		fmt.Println("Invalid port", opt.RpcPort)
 		return exitUsage
 	}
-	if workloadDuration < 10 {
+	if opt.WorkloadDuration < 10*time.Second {
 		fmt.Println("Minimum workload duration 10s")
 		return exitUsage
 	}
-	opt.WorkloadDuration = time.Duration(workloadDuration) * time.Second
 
 	for _, node := range strings.Split(nodes, ",") {
 		node = strings.TrimSpace(node)
@@ -114,34 +124,5 @@ func parseOptions(args []string, opt *gorgon.Options, filter *Filter) int {
 		return exitUsage
 	}
 
-	opt.Extras = make(map[string]string)
-	for _, pair := range strings.Split(extras, ";") {
-		k, v, _ := strings.Cut(pair, "=")
-		k = strings.TrimSpace(k)
-		if len(k) == 0 {
-			continue
-		}
-		v = strings.TrimSpace(v)
-		opt.Extras[k] = v
-	}
-	return 0
-}
-
-func cmdRpc(args []string) int {
-	var flags Flags
-	port := 9090
-	flags.Optional("--rpc-port", "", &port)
-	if !flags.Parse(args) {
-		return exitUsage
-	}
-	if port <= 0 || port >= (1<<16) {
-		fmt.Println("Invalid port", port)
-		return exitUsage
-	}
-	err := jrpc.Listen(fmt.Sprintf(":%v", port), []byte("password"))
-	if err != nil {
-		log.Error("rpc: %v", err)
-		return 1
-	}
 	return 0
 }

@@ -31,12 +31,16 @@ func (*NetworkPartitionNemesis) Name() string {
 func (nemesis *NetworkPartitionNemesis) SetUp(opt *gorgon.Options) error {
 	nemesis.options = opt
 	nemesis.node = opt.Nodes[splitmix.Rand.Intn(len(opt.Nodes))]
-	client, err := jrpc.Dial(fmt.Sprintf("%s:%d", nemesis.node, opt.RpcPort), []byte("password"))
+	client, err := jrpc.Dial(fmt.Sprintf("%s:%d", nemesis.node, opt.RpcPort), []byte(opt.RpcPassword))
 	if err != nil {
 		return err
 	}
 	nemesis.client = client
-	return nemesis.iptables("-A", "INPUT", "-p", "tcp", "--dport", strconv.Itoa(opt.RpcPort), "-j", "ACCEPT")
+	err = nemesis.iptables("-A", "INPUT", "-p", "tcp", "--dport", strconv.Itoa(opt.RpcPort), "-j", "ACCEPT")
+	if err != nil {
+		return err
+	}
+	return nemesis.iptables("-A", "OUTPUT", "-p", "tcp", "--sport", strconv.Itoa(opt.RpcPort), "-j", "ACCEPT")
 }
 
 func (nemesis *NetworkPartitionNemesis) TearDown() error {
@@ -44,9 +48,14 @@ func (nemesis *NetworkPartitionNemesis) TearDown() error {
 		return nil
 	}
 	err := nemesis.iptables("-P", "INPUT", "ACCEPT")
-	if err == nil {
-		err = nemesis.iptables("-F")
+	if err != nil {
+		return err
 	}
+	err = nemesis.iptables("-P", "OUTPUT", "ACCEPT")
+	if err != nil {
+		return err
+	}
+	err = nemesis.iptables("-F")
 	nemesis.client.Close()
 	return err
 }
@@ -59,13 +68,25 @@ func (nemesis *NetworkPartitionNemesis) Run() error {
 		if err != nil {
 			return err
 		}
+		err = nemesis.iptables("-A", "OUTPUT", "-p", "tcp", "--sport", strconv.Itoa(port), "-j", "ACCEPT")
+		if err != nil {
+			return err
+		}
 	}
 	err := nemesis.iptables("-A", "INPUT", "-j", "DROP")
 	if err != nil {
 		return err
 	}
+	err = nemesis.iptables("-A", "OUTPUT", "-j", "DROP")
+	if err != nil {
+		return err
+	}
 	time.Sleep(time.Until(deadline) * 2 / 3)
 	err = nemesis.iptables("-P", "INPUT", "ACCEPT")
+	if err != nil {
+		return err
+	}
+	err = nemesis.iptables("-P", "OUTPUT", "ACCEPT")
 	if err != nil {
 		return err
 	}

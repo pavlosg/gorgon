@@ -14,72 +14,53 @@ import (
 	"github.com/pavlosg/gorgon/src/gorgon"
 	"github.com/pavlosg/gorgon/src/gorgon/log"
 	"github.com/pavlosg/gorgon/src/gorgon/nemeses"
+	"github.com/pavlosg/gorgon/src/gorgon/rpcs"
 	"github.com/pavlosg/gorgon/src/gorgon/workloads"
 )
 
-func NewDatabase() gorgon.Database {
-	return &database{}
+type DatabaseConfig struct {
+	User          *string
+	Pass          *string
+	Port          *int
+	Replicas      *int
+	Durability    *string
+	Timeout       *time.Duration
+	ClientOverRpc *bool
+}
+
+func NewDatabase(config DatabaseConfig) gorgon.Database {
+	return &database{config: config}
 }
 
 type database struct {
+	config     DatabaseConfig
 	options    *gorgon.Options
-	user       string
-	pass       string
-	port       int
 	durability gocb.DurabilityLevel
-	replicas   int
 }
 
 func (*database) Name() string {
 	return "couchbase"
 }
 
-func (db *database) SetUp(opt *gorgon.Options) error {
+func (db *database) SetOptions(opt *gorgon.Options) error {
 	db.options = opt
-	db.user = "Administrator"
-	db.pass = "password"
-	db.port = 11210
-	if user, ok := opt.Extras["db_user"]; ok {
-		db.user = user
-	}
-	if pass, ok := opt.Extras["db_pass"]; ok {
-		db.pass = pass
-	}
-	if port, ok := opt.Extras["db_port"]; ok {
-		n, err := strconv.Atoi(port)
-		if err != nil {
-			return err
-		}
-		db.port = n
-	}
-	if durability, ok := opt.Extras["db_durability"]; ok {
-		switch durability {
-		case "":
-			db.durability = gocb.DurabilityLevelUnknown
-		case "none":
-			db.durability = gocb.DurabilityLevelNone
-		case "majority":
-			db.durability = gocb.DurabilityLevelMajority
-		case "majority_and_persist_on_master":
-			db.durability = gocb.DurabilityLevelMajorityAndPersistOnMaster
-		case "persist_to_majority":
-			db.durability = gocb.DurabilityLevelPersistToMajority
-		default:
-			return fmt.Errorf("kv: invalid durability %q", durability)
+	if durability := *db.config.Durability; len(durability) != 0 {
+		db.durability = parseDurabilityLevel(durability)
+		if db.durability == gocb.DurabilityLevelUnknown {
+			return fmt.Errorf("kv: invalid durability level %q", durability)
 		}
 	}
-	if replicas, ok := opt.Extras["db_replicas"]; ok {
-		n, err := strconv.Atoi(replicas)
-		if err != nil {
-			return err
-		}
-		if n < 0 || n > 3 {
-			return fmt.Errorf("kv: invalid number of replicas %d", n)
-		}
-		db.replicas = n
-	} else {
-		db.replicas = 1
+	if n := *db.config.Replicas; n < 0 || n > 3 {
+		return fmt.Errorf("kv: invalid number of replicas %d", n)
 	}
+	return nil
+}
+
+func (db *database) SetUp() error {
+	opt := db.options
+	user := *db.config.User
+	pass := *db.config.Pass
+	replicas := *db.config.Replicas
 
 	for _, node := range opt.Nodes {
 		if err := db.httpPost(node, "controller/hardResetNode", nil); err != nil {
@@ -95,8 +76,8 @@ func (db *database) SetUp(opt *gorgon.Options) error {
 	}
 	if err := db.httpPost(opt.Nodes[0], "clusterInit", map[string]string{
 		"hostname": opt.Nodes[0],
-		"username": db.user,
-		"password": db.pass,
+		"username": user,
+		"password": pass,
 		"services": "kv",
 		"port":     "SAME"}); err != nil {
 		return err
@@ -107,8 +88,8 @@ func (db *database) SetUp(opt *gorgon.Options) error {
 		}
 		if err := db.httpPost(node, "node/controller/doJoinCluster", map[string]string{
 			"hostname": opt.Nodes[0],
-			"user":     db.user,
-			"password": db.pass,
+			"user":     user,
+			"password": pass,
 			"services": "kv"}); err != nil {
 			return err
 		}
@@ -157,7 +138,7 @@ func (db *database) SetUp(opt *gorgon.Options) error {
 		"name":           "default",
 		"ramQuota":       "1024",
 		"evictionPolicy": "fullEviction",
-		"replicaNumber":  strconv.Itoa(db.replicas),
+		"replicaNumber":  strconv.Itoa(replicas),
 		"flushEnabled":   "1"}); err != nil {
 		return err
 	}
@@ -171,8 +152,8 @@ func (db *database) TearDown() error {
 }
 
 func (db *database) httpGet(node, endpoint string) ([]byte, error) {
-	uri := fmt.Sprintf("http://%s:%s@%s:8091/%s", db.user, db.pass, node, endpoint)
-	log.Info("HTTP GET %s", uri)
+	uri := fmt.Sprintf("http://%s:%s@%s:8091/%s", *db.config.User, *db.config.Pass, node, endpoint)
+	log.Info("HTTP GET %s %s", node, endpoint)
 	resp, err := http.Get(uri)
 	if resp != nil {
 		defer resp.Body.Close()
@@ -195,7 +176,7 @@ func (db *database) httpPost(node, endpoint string, form map[string]string) erro
 	for k, v := range form {
 		values.Set(k, v)
 	}
-	uri := fmt.Sprintf("http://%s:%s@%s:8091/%s", db.user, db.pass, node, endpoint)
+	uri := fmt.Sprintf("http://%s:%s@%s:8091/%s", *db.config.User, *db.config.Pass, node, endpoint)
 	log.Info("HTTP POST %s %s %s", node, endpoint, values.Encode())
 	resp, err := http.PostForm(uri, values)
 	if resp != nil {
@@ -218,14 +199,29 @@ func (db *database) httpPost(node, endpoint string, form map[string]string) erro
 }
 
 func (db *database) NewClient(id int) (gorgon.Client, error) {
-	uri := fmt.Sprintf("couchbase://%s:%d", db.options.Nodes[0], db.port)
-	return NewClient(id, uri, db.user, db.pass, db.durability), nil
+	nodes := db.options.Nodes
+	if *db.config.ClientOverRpc {
+		return rpcs.NewClientOverRpc(id, nodes[id%len(nodes)], db.options), nil
+	}
+	uri := fmt.Sprintf("couchbase://%s:%d", strings.Join(nodes, ","), *db.config.Port)
+	return NewClient(id, uri, *db.config.User, *db.config.Pass), nil
 }
 
-func (*database) Scenarios(opt *gorgon.Options) []gorgon.Scenario {
+func (db *database) ClientConfig() string {
+	config := ClientConfig{
+		Durability: *db.config.Durability,
+		Timeout:    *db.config.Timeout}
+	configJson, err := json.Marshal(config)
+	if err != nil {
+		panic(err)
+	}
+	return string(configJson)
+}
+
+func (db *database) Scenarios() []gorgon.Scenario {
 	return []gorgon.Scenario{
 		{Workload: workloads.NewGetSetWorkload(), Nemesis: nil},
 		{Workload: workloads.NewGetSetWorkload(), Nemesis: NewKillNemesis("memcached")},
-		{Workload: workloads.NewGetSetWorkload(), Nemesis: nemeses.NewNetworkPartitionNemesis([]int{11210})},
+		{Workload: workloads.NewGetSetWorkload(), Nemesis: nemeses.NewNetworkPartitionNemesis([]int{8091})},
 	}
 }

@@ -16,13 +16,26 @@ nodes='n0.local,n1.local,n2.local'
 
 {
     echo No durability
-    gorgon_couchbase run --nodes $nodes
+    gorgon_couchbase -gorgon-nodes $nodes run
 
-    echo majority_and_persist_on_master
-    gorgon_couchbase run \
-        --nodes $nodes \
-        --extras 'db_durability=majority_and_persist_on_master' \
-        -E '*~nil'
+    echo majorityPersistActive
+    gorgon_couchbase \
+        -gorgon-nodes $nodes \
+        -gorgon-exclude '*~nil' \
+        -gorgon-concurrency 8 \
+        -durability majorityPersistActive \
+        -replicas 2 \
+        run
+
+    echo majorityPersistActive client-over-rpc
+    gorgon_couchbase \
+        -gorgon-nodes $nodes \
+        -gorgon-exclude '*~nil' \
+        -gorgon-concurrency 18 \
+        -durability majorityPersistActive \
+        -replicas 2 \
+        -client-over-rpc \
+        run
 } 2>&1 | tee gorgon.log
 
 touch .html

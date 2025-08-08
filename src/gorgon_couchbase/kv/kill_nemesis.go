@@ -29,7 +29,7 @@ func (nemesis *KillNemesis) Name() string {
 func (nemesis *KillNemesis) SetUp(opt *gorgon.Options) error {
 	nemesis.options = opt
 	node := opt.Nodes[splitmix.Rand.Intn(len(opt.Nodes))]
-	client, err := jrpc.Dial(fmt.Sprintf("%s:%d", node, opt.RpcPort), []byte("password"))
+	client, err := jrpc.Dial(fmt.Sprintf("%s:%d", node, opt.RpcPort), []byte(opt.RpcPassword))
 	if err != nil {
 		return err
 	}
