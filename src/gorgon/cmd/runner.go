@@ -160,7 +160,7 @@ func (runner *Runner) Check(history []gorgon.Operation, dir string) (err error) 
 				Return:   op.Return,
 			}
 		}
-		result, info := porcupine.CheckOperationsVerbose(dmodel, hist, 0)
+		result, info := porcupine.CheckOperationsVerbose(dmodel, hist, 20*time.Second)
 		level := log.INFO
 		if result != porcupine.Ok {
 			level = log.WARNING
@@ -205,9 +205,6 @@ func (w *worker) run() {
 			return
 		}
 		if instr == nil {
-			return
-		}
-		if _, ok := instr.(gorgon.InstructionPending); ok {
 			time.Sleep(time.Millisecond)
 			continue
 		}

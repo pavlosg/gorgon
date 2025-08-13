@@ -1,32 +1,33 @@
 package rpcs
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/rpc"
+	"reflect"
 	"strconv"
 	"sync"
 
 	"github.com/pavlosg/gorgon/src/gorgon"
-	"github.com/pavlosg/gorgon/src/gorgon/generators"
 	"github.com/pavlosg/gorgon/src/gorgon/jrpc"
 	"github.com/pavlosg/gorgon/src/gorgon/log"
 )
 
-type RpcOpenClient struct {
-	Id     int
-	Config string
+func RegisterInstruction(instrunction gorgon.Instruction) {
+	rtype := reflect.TypeOf(instrunction)
+	for rtype.Kind() == reflect.Pointer {
+		rtype = rtype.Elem()
+	}
+	instructions[rtype.PkgPath()+"."+rtype.Name()] = rtype
 }
 
-type RpcGet struct {
-	Id  int
-	Key string
+func NewClientOverRpc(id int, node string, opt *gorgon.Options) gorgon.Client {
+	return &clientOverRpc{id: id, node: node, opt: opt}
 }
 
-type RpcSet struct {
-	Id    int
-	Key   string
-	Value int
+func NewClientRpc(db gorgon.Database) *ClientRpc {
+	return &ClientRpc{db: db, clients: make(map[int]*lockableClient)}
 }
 
 type ClientRpc struct {
@@ -38,14 +39,6 @@ type ClientRpc struct {
 type lockableClient struct {
 	client gorgon.Client
 	mutex  sync.Mutex
-}
-
-func NewClientOverRpc(id int, node string, opt *gorgon.Options) gorgon.Client {
-	return &clientOverRpc{id: id, node: node, opt: opt}
-}
-
-func NewClientRpc(db gorgon.Database) *ClientRpc {
-	return &ClientRpc{db: db, clients: make(map[int]*lockableClient)}
 }
 
 func (rpc *ClientRpc) OpenClient(arg *RpcOpenClient, reply *string) error {
@@ -83,49 +76,41 @@ func (rpc *ClientRpc) CloseClient(id *int, reply *string) error {
 	return errors.New("ClientRpc: client not found")
 }
 
-func (rpc *ClientRpc) Get(arg *RpcGet, reply *string) error {
-	output := rpc.invoke(arg.Id, &generators.GetInstruction{Key: arg.Key})
+func (rpc *ClientRpc) Invoke(arg *RpcInvoke, reply *RpcInvokeReply) error {
+	var instruction gorgon.Instruction
+	if rtype, ok := instructions[arg.Instructon]; ok {
+		instr := reflect.New(rtype).Interface()
+		if err := json.Unmarshal([]byte(arg.Value), instr); err != nil {
+			return fmt.Errorf("ClientRpc.Invoke: error unmarshalling instruction %s: %v", arg.Instructon, err)
+		}
+		instruction = instr.(gorgon.Instruction)
+	} else {
+		return fmt.Errorf("ClientRpc.Invoke: unknown instruction type %s", arg.Instructon)
+	}
+	output := rpc.invoke(arg.Id, instruction)
 	if output == nil {
-		*reply = "null"
+		reply.Type = "nil"
+		reply.Value = "null"
 		return nil
 	}
 	switch v := output.(type) {
 	case int:
-		*reply = strconv.Itoa(v)
-		return nil
+		reply.Type = "int"
+		reply.Value = strconv.Itoa(v)
+	case string:
+		reply.Type = "string"
+		reply.Value = v
 	case error:
-		return v
-	default:
-		log.Warning("ClientRpc.Get: unexpected output type %T", output)
-		return errors.New("ClientRpc: unexpected output type")
-	}
-}
-
-func (rpc *ClientRpc) Set(arg *RpcSet, reply *string) error {
-	output := rpc.invoke(arg.Id, &generators.SetInstruction{Key: arg.Key, Value: arg.Value})
-	if output == nil {
-		*reply = "ok"
-		return nil
-	}
-	if err, ok := output.(error); ok {
-		if gorgon.IsUnambiguousError(err) {
-			*reply = "unambiguous"
+		if gorgon.IsUnambiguousError(v) {
+			reply.Type = "unambiguous_error"
+		} else {
+			reply.Type = "error"
 		}
-		return err
+		reply.Value = v.Error()
+	default:
+		return fmt.Errorf("ClientRpc.Invoke: unexpected output type %T", output)
 	}
-	return errors.New("ClientRpc: unexpected output type")
-}
-
-func (rpc *ClientRpc) ClearDatabase(id *int, reply *string) error {
-	output := rpc.invoke(*id, &gorgon.ClearDatabaseInstruction{})
-	if output == nil {
-		*reply = "ok"
-		return nil
-	}
-	if err, ok := output.(error); ok {
-		return err
-	}
-	return errors.New("ClientRpc: unexpected output type")
+	return nil
 }
 
 func (rpc *ClientRpc) invoke(id int, instruction gorgon.Instruction) interface{} {
@@ -175,36 +160,61 @@ func (c *clientOverRpc) Close() error {
 
 func (c *clientOverRpc) Invoke(instruction gorgon.Instruction, getTime func() int64) gorgon.Operation {
 	op := gorgon.Operation{ClientId: c.id, Input: instruction, Call: getTime()}
-	switch instr := instruction.(type) {
-	case *generators.GetInstruction:
-		var reply string
-		err := c.client.Call("ClientRpc.Get", &RpcGet{Id: c.id, Key: instr.Key}, &reply)
+	instructionJson, err := json.Marshal(instruction)
+	if err != nil {
+		log.Error("ClientOverRpc.Invoke: failed to marshal instruction %T", instruction)
+		op.Output = errors.New("ClientOverRpc: failed to marshal instruction")
 		op.Return = getTime()
-		if err != nil {
-			op.Output = err
-		} else if reply == "null" {
-			op.Output = nil
-		} else if i, err := strconv.Atoi(reply); err == nil {
-			op.Output = i
-		} else {
-			op.Output = reply
-		}
-	case *generators.SetInstruction:
-		var reply string
-		err := c.client.Call("ClientRpc.Set", &RpcSet{Id: c.id, Key: instr.Key, Value: instr.Value}, &reply)
-		op.Return = getTime()
-		if err != nil && reply == "unambiguous" {
-			err = gorgon.WrapUnambiguousError(err)
-			log.Warning("ClientRpc.Set: unambiguous error for key %q: %v", instr.Key, err)
-		}
+		return op
+	}
+	var reply RpcInvokeReply
+	rtype := reflect.TypeOf(instruction)
+	for rtype.Kind() == reflect.Pointer {
+		rtype = rtype.Elem()
+	}
+	arg := RpcInvoke{Id: c.id, Instructon: rtype.PkgPath() + "." + rtype.Name(), Value: string(instructionJson)}
+	err = c.client.Call("ClientRpc.Invoke", &arg, &reply)
+	op.Return = getTime()
+	if err != nil {
 		op.Output = err
-	case *gorgon.ClearDatabaseInstruction:
-		var reply string
-		op.Output = c.client.Call("ClientRpc.ClearDatabase", &c.id, &reply)
-		op.Return = getTime()
+		return op
+	}
+	switch reply.Type {
+	case "nil":
+		op.Output = nil
+	case "int":
+		i, err := strconv.Atoi(reply.Value)
+		if err != nil {
+			op.Output = fmt.Errorf("ClientOverRpc.Invoke: expected int, got %s", reply.Value)
+			return op
+		}
+		op.Output = i
+	case "string":
+		op.Output = reply.Value
+	case "unambiguous_error":
+		op.Output = gorgon.WrapUnambiguousError(errors.New(reply.Value))
+	case "error":
+		op.Output = errors.New(reply.Value)
 	default:
-		op.Return = getTime()
-		op.Output = gorgon.ErrUnsupportedInstruction
+		op.Output = fmt.Errorf("ClientOverRpc.Invoke: unexpected reply type %s", reply.Type)
 	}
 	return op
 }
+
+type RpcOpenClient struct {
+	Id     int
+	Config string
+}
+
+type RpcInvoke struct {
+	Id         int
+	Instructon string
+	Value      string
+}
+
+type RpcInvokeReply struct {
+	Type  string
+	Value string
+}
+
+var instructions = make(map[string]reflect.Type)

@@ -112,11 +112,6 @@ func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int6
 			}
 		}
 		return op
-	case *gorgon.ClearDatabaseInstruction:
-		op.Output = client.cluster.Buckets().FlushBucket("default", nil)
-		time.Sleep(5 * time.Second)
-		op.Return = getTime()
-		return op
 	}
 	op.Return = getTime()
 	op.Output = gorgon.ErrUnsupportedInstruction

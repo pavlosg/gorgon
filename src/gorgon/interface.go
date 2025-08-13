@@ -11,18 +11,6 @@ type Instruction interface {
 	String() string
 }
 
-type InstructionPending struct{}
-
-func (InstructionPending) String() string {
-	return "InstructionPending"
-}
-
-type ClearDatabaseInstruction struct{}
-
-func (ClearDatabaseInstruction) String() string {
-	return "ClearDatabase"
-}
-
 type Client interface {
 	Open(config string) error
 	Invoke(instruction Instruction, getTime func() int64) Operation

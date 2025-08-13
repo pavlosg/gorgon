@@ -21,7 +21,7 @@ type stagger struct {
 
 func (st *stagger) NextInstruction() (gorgon.Instruction, error) {
 	if time.Now().Before(st.next) {
-		return gorgon.InstructionPending{}, nil
+		return nil, nil
 	}
 	instr, err := st.gen.NextInstruction()
 	if err == nil {
