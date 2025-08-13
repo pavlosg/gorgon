@@ -1,0 +1,18 @@
+networks:
+  gorgon-net: {}
+
+services:
+  control:
+    container_name: gorgon-control
+    hostname: control.local
+    image: gorgon_couchbase-control
+    build: ./control
+    pull_policy: never
+    privileged: true
+    networks:
+      - gorgon-net
+    environment:
+      NODES: "NODE_LIST"
+    cpu_count: 4
+    mem_limit: 4G
+    mem_swappiness: 1

@@ -12,15 +12,15 @@ wait_for_node n0.local 9090
 wait_for_node n1.local 9090
 wait_for_node n2.local 9090
 
-nodes='n0.local,n1.local,n2.local'
+NODES=${NODES:-'n0.local,n1.local,n2.local'}
 
 {
     echo No durability
-    gorgon_couchbase -gorgon-nodes $nodes run
+    gorgon_couchbase -gorgon-nodes $NODES run
 
     echo majorityPersistActive
     gorgon_couchbase \
-        -gorgon-nodes $nodes \
+        -gorgon-nodes $NODES \
         -gorgon-exclude '*~nil' \
         -gorgon-concurrency 8 \
         -durability majorityPersistActive \
@@ -29,7 +29,7 @@ nodes='n0.local,n1.local,n2.local'
 
     echo majorityPersistActive client-over-rpc
     gorgon_couchbase \
-        -gorgon-nodes $nodes \
+        -gorgon-nodes $NODES \
         -gorgon-exclude '*~nil' \
         -gorgon-concurrency 18 \
         -durability majorityPersistActive \

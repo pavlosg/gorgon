@@ -1,0 +1,14 @@
+services:
+  nNODE_IDX:
+    container_name: gorgon-nNODE_IDX
+    hostname: nNODE_IDX.local
+    image: gorgon_couchbase-node
+    pull_policy: never
+    privileged: true
+    networks:
+      - gorgon-net
+    ports:
+      - "NODE_FWD_PORT:8091"
+    cpu_count: 2
+    mem_limit: 3G
+    mem_swappiness: 1
