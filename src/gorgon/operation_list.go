@@ -47,8 +47,26 @@ func (list *OperationList) Extract() []Operation {
 	list.mutex.Unlock()
 
 	var ret []Operation
-	for ; head != nil; head = head.next {
+	var maxTime int64
+	for head != nil {
+		if maxTime < head.value.Return {
+			maxTime = head.value.Return
+		}
+		if maxTime < head.value.Call {
+			maxTime = head.value.Call
+		}
 		ret = append(ret, head.value)
+		next := head.next
+		head.next = nil
+		head = next
+	}
+
+	// Place ambiguous returns after other
+	for i := len(ret) - 1; i >= 0; i-- {
+		if ret[i].Return == -1 {
+			maxTime++
+			ret[i].Return = maxTime
+		}
 	}
 
 	// Reverse

@@ -20,13 +20,14 @@ type stagger struct {
 }
 
 func (st *stagger) NextInstruction() (gorgon.Instruction, error) {
-	if time.Now().Before(st.next) {
+	now := time.Now()
+	if now.Before(st.next) {
 		return nil, nil
 	}
 	instr, err := st.gen.NextInstruction()
 	if err == nil {
 		dur := time.Duration(st.rand.Int63n(int64(st.pace * 2)))
-		st.next = st.next.Add(dur)
+		st.next = now.Add(dur)
 	}
 	return instr, err
 }

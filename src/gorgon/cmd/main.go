@@ -88,6 +88,8 @@ func parseOptions(opt *gorgon.Options, filter *Filter) int {
 	flag.StringVar(&nodes, "gorgon-nodes", nodes, "Comma-separated list of nodes")
 	flag.DurationVar(&opt.WorkloadDuration, "gorgon-workload-duration", opt.WorkloadDuration, "Intended workload/nemesis duration")
 	flag.IntVar(&opt.Concurrency, "gorgon-concurrency", opt.Concurrency, "Number of clients to use")
+	flag.BoolVar(&opt.ContinueAmbiguousClient, "gorgon-continue-ambiguous-client", false,
+		"Don't stop a worker when its client returns an error that is not unambiguous")
 	flag.IntVar(&opt.RpcPort, "gorgon-rpc-port", opt.RpcPort, "RPC port to connect")
 	flag.StringVar(&opt.RpcPassword, "gorgon-rpc-password", opt.RpcPassword, "RPC password")
 

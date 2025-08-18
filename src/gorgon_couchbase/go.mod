@@ -9,7 +9,7 @@ replace github.com/pavlosg/gorgon/src/gorgon v0.0.0 => ../gorgon
 require github.com/couchbase/gocb/v2 v2.8.1
 
 require (
-	github.com/anishathalye/porcupine v1.0.0 // indirect
+	github.com/anishathalye/porcupine v1.0.3 // indirect
 	github.com/couchbase/gocbcore/v10 v10.4.1 // indirect
 	github.com/couchbase/gocbcoreps v0.1.2 // indirect
 	github.com/couchbase/goprotostellar v1.0.2 // indirect

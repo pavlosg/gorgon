@@ -52,12 +52,13 @@ type Database interface {
 }
 
 type Options struct {
-	Args             []string
-	Nodes            []string
-	WorkloadDuration time.Duration
-	Concurrency      int
-	RpcPort          int
-	RpcPassword      string
+	Args                    []string
+	Nodes                   []string
+	WorkloadDuration        time.Duration
+	Concurrency             int
+	ContinueAmbiguousClient bool
+	RpcPort                 int
+	RpcPassword             string
 }
 
 type Operation struct {

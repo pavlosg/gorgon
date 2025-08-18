@@ -85,19 +85,21 @@ func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int6
 		result, err := client.collection.Get(instr.Key, &gocb.GetOptions{Timeout: client.config.Timeout})
 		op.Return = getTime()
 		if err != nil {
-			if !errors.Is(err, gocb.ErrDocumentNotFound) {
-				op.Output = err
-				return op
+			if errors.Is(err, gocb.ErrDocumentNotFound) {
+				op.Output = nil
+			} else {
+				// Get is idempotent
+				op.Output = gorgon.WrapUnambiguousError(err)
 			}
-		} else {
-			val := 0
-			err = result.Content(&val)
-			if err != nil {
-				op.Output = err
-				return op
-			}
-			op.Output = val
+			return op
 		}
+		val := 0
+		err = result.Content(&val)
+		if err != nil {
+			op.Output = gorgon.WrapUnambiguousError(err)
+			return op
+		}
+		op.Output = val
 		return op
 	case *generators.SetInstruction:
 		_, err := client.collection.Upsert(instr.Key, instr.Value,

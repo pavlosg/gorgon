@@ -93,12 +93,13 @@ func (runner *Runner) Run() ([]gorgon.Operation, error) {
 	log.Info("[%s] Starting workers", runner.name)
 	for i := 0; i < concurrency; i++ {
 		w := &worker{
-			stopFlag:   stopFlag,
-			wg:         wg,
-			gen:        gen,
-			client:     runner.clients[i],
-			operations: operationList,
-			name:       fmt.Sprintf("%s:%d", runner.name, i),
+			stopFlag:      stopFlag,
+			wg:            wg,
+			gen:           gen,
+			client:        runner.clients[i],
+			operations:    operationList,
+			stopAmbiguous: !runner.options.ContinueAmbiguousClient,
+			name:          fmt.Sprintf("%s:%d", runner.name, i),
 		}
 		wg.Add(1)
 		go w.run()
@@ -188,12 +189,13 @@ func (runner *Runner) runNemesis(stopFlag *atomic.Bool, wg *sync.WaitGroup) {
 }
 
 type worker struct {
-	stopFlag   *atomic.Bool
-	wg         *sync.WaitGroup
-	gen        gorgon.Generator
-	client     gorgon.Client
-	operations *gorgon.OperationList
-	name       string
+	stopFlag      *atomic.Bool
+	wg            *sync.WaitGroup
+	gen           gorgon.Generator
+	client        gorgon.Client
+	operations    *gorgon.OperationList
+	stopAmbiguous bool
+	name          string
 }
 
 func (w *worker) run() {
@@ -209,6 +211,14 @@ func (w *worker) run() {
 			continue
 		}
 		op := w.client.Invoke(instr, w.operations.GetTime)
+		if err, ok := op.Output.(error); ok && !gorgon.IsUnambiguousError(err) {
+			op.Return = -1
+			if w.stopAmbiguous {
+				log.Warning("[%s] Ambiguous error: %T %v", w.name, err, err)
+				w.operations.Append(op)
+				return
+			}
+		}
 		w.operations.Append(op)
 	}
 }
