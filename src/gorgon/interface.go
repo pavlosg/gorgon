@@ -12,27 +12,26 @@ type Instruction interface {
 }
 
 type Client interface {
+	Id() int
 	Open(config string) error
 	Invoke(instruction Instruction, getTime func() int64) Operation
 	Close() error
 }
 
-type Generator interface {
-	NextInstruction() (Instruction, error)
+type Generator = func(client int) (Instruction, error)
+
+type Workload interface {
+	Name() string
+	SetUp(opt *Options, clients []Client) error
+	Generator() Generator
 	Model() Model
+	TearDown() error
 }
 
 type Nemesis interface {
 	Name() string
 	SetUp(opt *Options) error
 	Run() error
-	TearDown() error
-}
-
-type Workload interface {
-	Name() string
-	SetUp(opt *Options, clients []Client) error
-	Generator() Generator
 	TearDown() error
 }
 

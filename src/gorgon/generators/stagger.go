@@ -9,7 +9,7 @@ import (
 )
 
 func Stagger(gen gorgon.Generator, pace time.Duration) gorgon.Generator {
-	return &stagger{gen, pace, time.Now(), splitmix.NewRand()}
+	return (&stagger{gen, pace, time.Now(), splitmix.NewRand()}).getNext
 }
 
 type stagger struct {
@@ -19,19 +19,15 @@ type stagger struct {
 	rand *rand.Rand
 }
 
-func (st *stagger) NextInstruction() (gorgon.Instruction, error) {
+func (st *stagger) getNext(client int) (gorgon.Instruction, error) {
 	now := time.Now()
 	if now.Before(st.next) {
 		return nil, nil
 	}
-	instr, err := st.gen.NextInstruction()
+	instr, err := st.gen(client)
 	if err == nil {
 		dur := time.Duration(st.rand.Int63n(int64(st.pace * 2)))
 		st.next = now.Add(dur)
 	}
 	return instr, err
-}
-
-func (st *stagger) Model() gorgon.Model {
-	return st.gen.Model()
 }

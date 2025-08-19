@@ -23,7 +23,7 @@ func main() {
 		Port:          flag.Int("port", 11210, "Couchbase port"),
 		Replicas:      flag.Int("replicas", 1, "Number of Couchbase replicas (0-3)"),
 		Durability:    flag.String("durability", "none", "Couchbase durability level"),
-		Timeout:       flag.Duration("timeout", 10*time.Second, "Couchbase operation timeout"),
+		Timeout:       flag.Duration("timeout", 5*time.Second, "Couchbase operation timeout"),
 		ClientOverRpc: flag.Bool("client-over-rpc", false, "Use RPC for client operations"),
 	})
 

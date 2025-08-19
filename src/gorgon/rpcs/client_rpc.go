@@ -136,6 +136,10 @@ type clientOverRpc struct {
 	client *rpc.Client
 }
 
+func (c *clientOverRpc) Id() int {
+	return c.id
+}
+
 func (c *clientOverRpc) Open(config string) error {
 	client, err := jrpc.Dial(fmt.Sprintf("%s:%d", c.node, c.opt.RpcPort), []byte(c.opt.RpcPassword))
 	if err != nil {

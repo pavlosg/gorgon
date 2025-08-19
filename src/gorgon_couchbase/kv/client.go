@@ -32,7 +32,7 @@ type client struct {
 
 var errNilCollection = errors.New("nil collection")
 
-func (client *client) GetId() int {
+func (client *client) Id() int {
 	return client.id
 }
 

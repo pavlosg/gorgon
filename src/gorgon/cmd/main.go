@@ -18,7 +18,7 @@ func Main(db gorgon.Database) int {
 	var filter Filter
 	opt := &gorgon.Options{
 		WorkloadDuration: time.Minute,
-		Concurrency:      3,
+		Concurrency:      6,
 		RpcPort:          9090,
 	}
 	ret := parseOptions(opt, &filter)
