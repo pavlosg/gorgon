@@ -12,12 +12,16 @@ RUN apt-get -qy update
 RUN apt-get -qy install couchbase-server
 RUN rm *.deb
 
+RUN mkdir /root/deps
+ADD deps.tgz /root/deps
+WORKDIR /root/deps/src/gorgon_couchbase
+RUN go mod download
+
 ADD src.tgz /
 WORKDIR /src/gorgon_couchbase
 RUN go build
 
 WORKDIR /root
-COPY init.sh /init.sh
-COPY run.sh /run.sh
+COPY init.sh run.sh /
 
 ENTRYPOINT ["sh", "/init.sh"]
