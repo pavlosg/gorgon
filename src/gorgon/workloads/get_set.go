@@ -7,35 +7,12 @@ import (
 	"github.com/pavlosg/gorgon/src/gorgon/generators"
 )
 
-func NewGetSetWorkload() gorgon.Workload {
-	return &getSetWorkload{}
-}
-
-type getSetWorkload struct {
-	gen gorgon.Generator
-}
-
-func (*getSetWorkload) Name() string {
-	return "GetSet"
-}
-
-func (w *getSetWorkload) SetUp(opt *gorgon.Options, clients []gorgon.Client) error {
+func GetSetWorkload() gorgon.Workload {
 	keys := []string{"key0", "key1", "key2", "key3", "key4", "key5", "key6", "key7"}
-	w.gen = generators.NewGetSetGenerator(keys)
-	w.gen = generators.Stagger(w.gen, time.Millisecond/4)
-	return nil
-}
-
-func (w *getSetWorkload) TearDown() error {
-	return nil
-}
-
-func (w *getSetWorkload) Generator() gorgon.Generator {
-	return w.gen
-}
-
-func (*getSetWorkload) Model() gorgon.Model {
-	return GetSetModel()
+	return gorgon.Workload{
+		Model:      GetSetModel(),
+		Generators: []gorgon.Generator{generators.Stagger(generators.NewGetSetGenerator(keys), time.Millisecond)},
+	}
 }
 
 func GetSetModel() gorgon.Model {

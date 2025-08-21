@@ -78,46 +78,43 @@ func (client *client) Close() error {
 	return err
 }
 
-func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int64) gorgon.Operation {
-	op := gorgon.Operation{ClientId: client.id, Input: instruction, Call: getTime()}
+func (client *client) Invoke(instruction gorgon.Instruction, getTime func() int64) (retTime int64, output gorgon.Output) {
 	switch instr := instruction.(type) {
 	case *generators.GetInstruction:
 		result, err := client.collection.Get(instr.Key, &gocb.GetOptions{Timeout: client.config.Timeout})
-		op.Return = getTime()
+		retTime = getTime()
 		if err != nil {
 			if errors.Is(err, gocb.ErrDocumentNotFound) {
-				op.Output = nil
+				output = nil
 			} else {
 				// Get is idempotent
-				op.Output = gorgon.WrapUnambiguousError(err)
+				output = gorgon.WrapUnambiguousError(err)
 			}
-			return op
+			return
 		}
 		val := 0
 		err = result.Content(&val)
 		if err != nil {
-			op.Output = gorgon.WrapUnambiguousError(err)
-			return op
+			output = gorgon.WrapUnambiguousError(err)
+		} else {
+			output = val
 		}
-		op.Output = val
-		return op
+		return
 	case *generators.SetInstruction:
 		_, err := client.collection.Upsert(instr.Key, instr.Value,
 			&gocb.UpsertOptions{DurabilityLevel: client.durability, Timeout: client.config.Timeout})
-		op.Return = getTime()
+		retTime = getTime()
 		if err != nil {
 			if errors.Is(err, gocb.ErrUnambiguousTimeout) ||
 				errors.Is(err, gocb.ErrDurabilityImpossible) {
-				op.Output = gorgon.WrapUnambiguousError(err)
+				output = gorgon.WrapUnambiguousError(err)
 			} else {
-				op.Output = err
+				output = err
 			}
 		}
-		return op
+		return
 	}
-	op.Return = getTime()
-	op.Output = gorgon.ErrUnsupportedInstruction
-	return op
+	return getTime(), gorgon.ErrUnsupportedInstruction
 }
 
 func parseDurabilityLevel(level string) gocb.DurabilityLevel {

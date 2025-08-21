@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"path"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,23 +12,24 @@ import (
 	"github.com/anishathalye/porcupine"
 	"github.com/pavlosg/gorgon/src/gorgon"
 	"github.com/pavlosg/gorgon/src/gorgon/log"
-	"github.com/pavlosg/gorgon/src/gorgon/nemeses"
 )
 
 type Runner struct {
 	name     string
 	db       gorgon.Database
-	scenario gorgon.Scenario
+	workload gorgon.Workload
 	options  *gorgon.Options
 	clients  []gorgon.Client
 }
 
-func NewRunner(db gorgon.Database, scenario gorgon.Scenario, opts *gorgon.Options) *Runner {
-	if scenario.Nemesis == nil {
-		scenario.Nemesis = &nemeses.NilNemesis{}
+func NewRunner(db gorgon.Database, workload gorgon.Workload, opts *gorgon.Options) *Runner {
+	var sb strings.Builder
+	sb.WriteString(db.Name())
+	for _, gen := range workload.Generators {
+		sb.WriteByte('~')
+		sb.WriteString(gen.Name())
 	}
-	name := fmt.Sprintf("%s~%s~%s", db.Name(), scenario.Workload.Name(), scenario.Nemesis.Name())
-	return &Runner{name, db, scenario, opts, nil}
+	return &Runner{sb.String(), db, workload, opts, nil}
 }
 
 func (runner *Runner) Name() string {
@@ -68,12 +71,11 @@ func (runner *Runner) SetUp() error {
 		clients[i] = client
 	}
 	log.Info("[%s] Workload SetUp", runner.name)
-	if err := runner.scenario.Workload.SetUp(runner.options, clients); err != nil {
-		return err
-	}
-	log.Info("[%s] Nemesis SetUp", runner.name)
-	if err := runner.scenario.Nemesis.SetUp(runner.options); err != nil {
-		return err
+	for _, gen := range runner.workload.Generators {
+		if err := gen.SetUp(runner.options); err != nil {
+			log.Error("[%s] Error in Generator.SetUp: %v", runner.name, err)
+			return err
+		}
 	}
 	runner.clients = clients
 	clients = nil
@@ -81,60 +83,64 @@ func (runner *Runner) SetUp() error {
 }
 
 func (runner *Runner) Run() ([]gorgon.Operation, error) {
-	workload := runner.scenario.Workload
 	stopFlag := &atomic.Bool{}
 	defer stopFlag.Store(true)
 	wg := &sync.WaitGroup{}
-	wgNemesis := &sync.WaitGroup{}
 	genMutex := &sync.Mutex{}
 	operationList := gorgon.NewOperationList()
 	concurrency := runner.options.Concurrency
 	log.Info("[%s] Starting workers", runner.name)
-	for i := 0; i < concurrency; i++ {
+	deadline := time.Now().Add(runner.options.WorkloadDuration)
+	for i := -1; i < concurrency; i++ {
+		var client gorgon.Client
+		if i >= 0 {
+			client = runner.clients[i]
+		}
 		w := &worker{
 			stopFlag:      stopFlag,
 			wg:            wg,
 			genMutex:      genMutex,
-			gen:           workload.Generator(),
-			client:        runner.clients[i],
+			generators:    runner.workload.Generators,
+			client:        client,
 			operations:    operationList,
+			deadline:      deadline,
 			stopAmbiguous: !runner.options.ContinueAmbiguousClient,
 			name:          runner.name,
 		}
 		wg.Add(1)
 		go w.run()
 	}
-	log.Info("[%s] Starting nemesis", runner.name)
-	wgNemesis.Add(1)
-	go runner.runNemesis(stopFlag, wgNemesis)
-	wgNemesis.Wait()
-	log.Info("[%s] Nemesis finished", runner.name)
 	wg.Wait()
 	log.Info("[%s] Workers finished", runner.name)
 	return operationList.Extract(), nil
 }
 
-func (runner *Runner) TearDown() error {
-	errNemesis := runner.scenario.Nemesis.TearDown()
-	errWorkload := runner.scenario.Workload.TearDown()
+func (runner *Runner) TearDown() (retErr error) {
+	for _, gen := range runner.workload.Generators {
+		if err := gen.TearDown(); err != nil {
+			log.Error("[%s] Error in Generator.TearDown: %v", runner.name, err)
+			if retErr == nil {
+				retErr = err
+			}
+		}
+	}
 	for i, client := range runner.clients {
 		if client != nil {
 			err := client.Close()
 			if err != nil {
 				log.Error("[%s] Client %d error: %v", runner.name, i, err)
+				if retErr == nil {
+					retErr = err
+				}
 			}
 		}
 	}
-	if errNemesis != nil {
-		return errNemesis
-	}
-	return errWorkload
+	return
 }
 
 func (runner *Runner) Check(history []gorgon.Operation, dir string) (err error) {
 	const fileTime = "2006-01-02-150405-0700"
-	workload := runner.scenario.Workload
-	model := workload.Model()
+	model := runner.workload.Model
 	ndmodel := porcupine.NondeterministicModel{
 		Init: model.Init,
 		Step: func(state, input, output interface{}) []interface{} {
@@ -161,7 +167,7 @@ func (runner *Runner) Check(history []gorgon.Operation, dir string) (err error) 
 				Return:   op.Return,
 			}
 		}
-		result, info := porcupine.CheckOperationsVerbose(dmodel, hist, 20*time.Second)
+		result, info := porcupine.CheckOperationsVerbose(dmodel, hist, 40*time.Second)
 		level := log.INFO
 		if result != porcupine.Ok {
 			level = log.WARNING
@@ -177,45 +183,60 @@ func (runner *Runner) Check(history []gorgon.Operation, dir string) (err error) 
 	return
 }
 
-func (runner *Runner) runNemesis(stopFlag *atomic.Bool, wg *sync.WaitGroup) {
-	defer func() {
-		stopFlag.Store(true)
-		wg.Done()
-	}()
-	err := runner.scenario.Nemesis.Run()
-	if err != nil {
-		log.Error("[%s] Nemesis error: %v", runner.name, err)
-	}
-}
-
 type worker struct {
 	stopFlag      *atomic.Bool
 	wg            *sync.WaitGroup
 	genMutex      *sync.Mutex
-	gen           gorgon.Generator
+	generators    []gorgon.Generator
 	client        gorgon.Client
 	operations    *gorgon.OperationList
+	deadline      time.Time
 	stopAmbiguous bool
 	name          string
 }
 
 func (w *worker) run() {
 	defer w.wg.Done()
-	id := w.client.Id()
-	for !w.stopFlag.Load() {
-		w.genMutex.Lock()
-		instr, err := w.gen(id)
-		w.genMutex.Unlock()
+	id := -1
+	if w.client != nil {
+		id = w.client.Id()
+	}
+	for time.Until(w.deadline) >= 0 && !w.stopFlag.Load() {
+		instr, gen, err := w.getNext(id)
 		if err != nil {
-			log.Error("[%s] Generator failed: %v", w.name, err)
 			return
 		}
 		if instr == nil {
 			time.Sleep(time.Millisecond)
 			continue
 		}
-		op := w.client.Invoke(instr, w.operations.GetTime)
-		if err, ok := op.Output.(error); ok && !gorgon.IsUnambiguousError(err) {
+
+		if instr.ForSelf() {
+			if err := w.onCall(id, instr); err != nil {
+				return
+			}
+			_, output := gen.Invoke(instr, w.operations.GetTime)
+			if err := w.onReturn(id, instr, output); err != nil {
+				return
+			}
+			continue
+		}
+
+		if w.client == nil {
+			panic(errors.New("worker has no client assigned"))
+		}
+		if err := w.onCall(id, instr); err != nil {
+			return
+		}
+		op := gorgon.Operation{ClientId: id, Input: instr, Call: w.operations.GetTime()}
+		retTime, output := w.client.Invoke(instr, w.operations.GetTime)
+		if err := w.onReturn(id, instr, output); err != nil {
+			return
+		}
+
+		op.Return = retTime
+		op.Output = output
+		if err, ok := output.(error); ok && !gorgon.IsUnambiguousError(err) {
 			op.Return = -1
 			if w.stopAmbiguous {
 				log.Warning("[%s] Client %d returned ambiguous error: %T %v", w.name, id, err, err)
@@ -225,4 +246,45 @@ func (w *worker) run() {
 		}
 		w.operations.Append(op)
 	}
+}
+
+func (w *worker) getNext(id int) (gorgon.Instruction, gorgon.Generator, error) {
+	w.genMutex.Lock()
+	defer w.genMutex.Unlock()
+	for i := len(w.generators) - 1; i >= 0; i-- {
+		gen := w.generators[i]
+		instr, err := gen.Next(id)
+		if err != nil {
+			log.Error("[%s] Generator %q failed: %v", w.name, gen.Name(), err)
+			return nil, nil, err
+		}
+		if instr != nil {
+			return instr, gen, nil
+		}
+	}
+	return nil, nil, nil
+}
+
+func (w *worker) onCall(client int, instruction gorgon.Instruction) error {
+	w.genMutex.Lock()
+	defer w.genMutex.Unlock()
+	for _, gen := range w.generators {
+		if err := gen.OnCall(client, instruction); err != nil {
+			log.Error("[%s] Generator %q OnCall failed: %v", w.name, gen.Name(), err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *worker) onReturn(client int, instruction gorgon.Instruction, output gorgon.Output) error {
+	w.genMutex.Lock()
+	defer w.genMutex.Unlock()
+	for _, gen := range w.generators {
+		if err := gen.OnReturn(client, instruction, output); err != nil {
+			log.Error("[%s] Generator %q OnReturn failed: %v", w.name, gen.Name(), err)
+			return err
+		}
+	}
+	return nil
 }

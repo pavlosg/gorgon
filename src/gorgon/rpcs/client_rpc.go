@@ -113,7 +113,7 @@ func (rpc *ClientRpc) Invoke(arg *RpcInvoke, reply *RpcInvokeReply) error {
 	return nil
 }
 
-func (rpc *ClientRpc) invoke(id int, instruction gorgon.Instruction) interface{} {
+func (rpc *ClientRpc) invoke(id int, instruction gorgon.Instruction) gorgon.Output {
 	var client *lockableClient
 	rpc.mutex.Lock()
 	if c, ok := rpc.clients[id]; ok {
@@ -124,9 +124,9 @@ func (rpc *ClientRpc) invoke(id int, instruction gorgon.Instruction) interface{}
 		return errors.New("ClientRpc: client not found")
 	}
 	client.mutex.Lock()
-	defer client.mutex.Unlock()
-	op := client.client.Invoke(instruction, func() int64 { return 0 })
-	return op.Output
+	_, output := client.client.Invoke(instruction, func() int64 { return 0 })
+	client.mutex.Unlock()
+	return output
 }
 
 type clientOverRpc struct {
@@ -162,14 +162,11 @@ func (c *clientOverRpc) Close() error {
 	return c.client.Close()
 }
 
-func (c *clientOverRpc) Invoke(instruction gorgon.Instruction, getTime func() int64) gorgon.Operation {
-	op := gorgon.Operation{ClientId: c.id, Input: instruction, Call: getTime()}
+func (c *clientOverRpc) Invoke(instruction gorgon.Instruction, getTime func() int64) (retTime int64, output gorgon.Output) {
 	instructionJson, err := json.Marshal(instruction)
 	if err != nil {
 		log.Error("ClientOverRpc.Invoke: failed to marshal instruction %T", instruction)
-		op.Output = errors.New("ClientOverRpc: failed to marshal instruction")
-		op.Return = getTime()
-		return op
+		return getTime(), errors.New("ClientOverRpc: failed to marshal instruction")
 	}
 	var reply RpcInvokeReply
 	rtype := reflect.TypeOf(instruction)
@@ -178,31 +175,30 @@ func (c *clientOverRpc) Invoke(instruction gorgon.Instruction, getTime func() in
 	}
 	arg := RpcInvoke{Id: c.id, Instructon: rtype.PkgPath() + "." + rtype.Name(), Value: string(instructionJson)}
 	err = c.client.Call("ClientRpc.Invoke", &arg, &reply)
-	op.Return = getTime()
+	retTime = getTime()
 	if err != nil {
-		op.Output = err
-		return op
+		return retTime, err
 	}
 	switch reply.Type {
 	case "nil":
-		op.Output = nil
+		output = nil
 	case "int":
 		i, err := strconv.Atoi(reply.Value)
 		if err != nil {
-			op.Output = fmt.Errorf("ClientOverRpc.Invoke: expected int, got %s", reply.Value)
-			return op
+			output = fmt.Errorf("ClientOverRpc.Invoke: expected int, got %s", reply.Value)
+		} else {
+			output = i
 		}
-		op.Output = i
 	case "string":
-		op.Output = reply.Value
+		output = reply.Value
 	case "unambiguous_error":
-		op.Output = gorgon.WrapUnambiguousError(errors.New(reply.Value))
+		output = gorgon.WrapUnambiguousError(errors.New(reply.Value))
 	case "error":
-		op.Output = errors.New(reply.Value)
+		output = errors.New(reply.Value)
 	default:
-		op.Output = fmt.Errorf("ClientOverRpc.Invoke: unexpected reply type %s", reply.Type)
+		output = fmt.Errorf("ClientOverRpc.Invoke: unexpected reply type %s", reply.Type)
 	}
-	return op
+	return
 }
 
 type RpcOpenClient struct {

@@ -9,41 +9,40 @@ var ErrUnsupportedInstruction = WrapUnambiguousError(errors.New("gorgon: unsuppo
 
 type Instruction interface {
 	String() string
+	ForSelf() bool
 }
 
 type Client interface {
 	Id() int
 	Open(config string) error
-	Invoke(instruction Instruction, getTime func() int64) Operation
+	Invoke(instruction Instruction, getTime func() int64) (int64, Output)
 	Close() error
 }
 
-type Generator = func(client int) (Instruction, error)
-
-type Workload interface {
-	Name() string
-	SetUp(opt *Options, clients []Client) error
-	Generator() Generator
-	Model() Model
-	TearDown() error
-}
-
-type Nemesis interface {
+type Generator interface {
 	Name() string
 	SetUp(opt *Options) error
-	Run() error
+	Next(client int) (Instruction, error)
+	Invoke(instruction Instruction, getTime func() int64) (int64, Output)
+	OnCall(client int, instruction Instruction) error
+	OnReturn(client int, instruction Instruction, output Output) error
 	TearDown() error
 }
 
-type Scenario struct {
-	Workload
-	Nemesis
+type Workload struct {
+	Model
+	Generators []Generator
+}
+
+func (w Workload) Add(generator Generator) Workload {
+	w.Generators = append(w.Generators, generator)
+	return w
 }
 
 type Database interface {
 	Name() string
 	SetOptions(opt *Options) error
-	Scenarios() []Scenario
+	Workloads() []Workload
 	SetUp() error
 	NewClient(id int) (Client, error)
 	ClientConfig() string
@@ -64,11 +63,13 @@ type Operation struct {
 	ClientId int
 	Input    Instruction
 	Call     int64 // invocation timestamp
-	Output   interface{}
+	Output   Output
 	Return   int64 // response timestamp
 }
 
-type State = interface{}
+type State = any
+
+type Output = any
 
 type Model struct {
 	// Partition functions, such that a history is linearizable if and only
@@ -81,12 +82,12 @@ type Model struct {
 	// the given state, input, and output. If the system cannot step with
 	// the given state/input to produce the given output, this function
 	// should return an empty slice.
-	Step func(state State, input Instruction, output interface{}) []State
+	Step func(state State, input Instruction, output Output) []State
 	// Equality on states. If left nil, this package will use == as a
 	// fallback.
 	Equal func(state1, state2 State) bool
 	// For visualization, describe an operation as a string.
-	DescribeOperation func(input Instruction, output interface{}) string
+	DescribeOperation func(input Instruction, output Output) string
 	// For visualization purposes, describe a state as a string.
 	DescribeState func(state State) string
 }

@@ -218,10 +218,10 @@ func (db *database) ClientConfig() string {
 	return string(configJson)
 }
 
-func (db *database) Scenarios() []gorgon.Scenario {
-	return []gorgon.Scenario{
-		{Workload: workloads.NewGetSetWorkload(), Nemesis: nil},
-		{Workload: workloads.NewGetSetWorkload(), Nemesis: NewKillNemesis("memcached")},
-		{Workload: workloads.NewGetSetWorkload(), Nemesis: nemeses.NewNetworkPartitionNemesis([]int{8091})},
+func (db *database) Workloads() []gorgon.Workload {
+	return []gorgon.Workload{
+		workloads.GetSetWorkload(),
+		workloads.GetSetWorkload().Add(nemeses.NewKillNemesis("memcached")).Add(NewSetAfterKillGenerator()),
+		workloads.GetSetWorkload().Add(nemeses.NewNetworkPartitionNemesis(8091)).Add(NewPartitionAwareGetSetGenerator()),
 	}
 }

@@ -9,7 +9,6 @@ import (
 
 	"github.com/pavlosg/gorgon/src/gorgon/cmd"
 	"github.com/pavlosg/gorgon/src/gorgon/generators"
-	"github.com/pavlosg/gorgon/src/gorgon/nemeses"
 	"github.com/pavlosg/gorgon/src/gorgon/rpcs"
 	"github.com/pavlosg/gorgon/src/gorgon_couchbase/kv"
 )
@@ -28,8 +27,8 @@ func main() {
 	})
 
 	rpc.Register(rpcs.NewClientRpc(db))
-	rpc.Register(&nemeses.IpTablesRpc{})
-	rpc.Register(&kv.KillRpc{})
+	rpc.Register(&rpcs.IpTablesRpc{})
+	rpc.Register(&rpcs.KillRpc{})
 
 	rpcs.RegisterInstruction(&generators.GetInstruction{})
 	rpcs.RegisterInstruction(&generators.SetInstruction{})

@@ -16,13 +16,13 @@ NODES=${NODES:-'n0.local,n1.local,n2.local'}
 
 {
     echo No durability
-    gorgon_couchbase -gorgon-nodes $NODES run
+    gorgon_couchbase -gorgon-nodes $NODES -gorgon-concurrency 8 run
 
     echo majorityPersistActive
     gorgon_couchbase \
         -gorgon-nodes $NODES \
-        -gorgon-exclude '*~nil' \
-        -gorgon-concurrency 8 \
+        -gorgon-match '*~*~*' \
+        -gorgon-concurrency 10 \
         -durability majorityPersistActive \
         -replicas 2 \
         run
@@ -30,7 +30,7 @@ NODES=${NODES:-'n0.local,n1.local,n2.local'}
     echo majorityPersistActive client-over-rpc
     gorgon_couchbase \
         -gorgon-nodes $NODES \
-        -gorgon-exclude '*~nil' \
+        -gorgon-match '*~*~*' \
         -gorgon-concurrency 18 \
         -durability majorityPersistActive \
         -replicas 2 \

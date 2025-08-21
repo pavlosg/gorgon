@@ -44,9 +44,9 @@ func usage() int {
 }
 
 func cmdRun(db gorgon.Database, opt *gorgon.Options, filter *Filter) int {
-	scenarios := db.Scenarios()
-	for _, scenario := range scenarios {
-		runner := NewRunner(db, scenario, opt)
+	workloads := db.Workloads()
+	for _, workload := range workloads {
+		runner := NewRunner(db, workload, opt)
 		if !filter.Match(runner.Name()) {
 			continue
 		}
@@ -83,7 +83,7 @@ func parseOptions(opt *gorgon.Options, filter *Filter) int {
 	excludePattern := ""
 	nodes := "localhost"
 
-	flag.StringVar(&matchPattern, "gorgon-filter", matchPattern, "Wildcard pattern for scenarios to run")
+	flag.StringVar(&matchPattern, "gorgon-match", matchPattern, "Wildcard pattern for scenarios to run")
 	flag.StringVar(&excludePattern, "gorgon-exclude", excludePattern, "Wildcard pattern for scenarios to exclude")
 	flag.StringVar(&nodes, "gorgon-nodes", nodes, "Comma-separated list of nodes")
 	flag.DurationVar(&opt.WorkloadDuration, "gorgon-workload-duration", opt.WorkloadDuration, "Intended workload/nemesis duration")
